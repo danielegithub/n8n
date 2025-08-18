@@ -1,0 +1,736 @@
+{
+  "name": "AI con RAG da MySQL",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title, content, \n       JSON_EXTRACT(embedding_vector, '$.vector') as stored_embedding\nFROM documents;",
+        "options": {}
+      },
+      "id": "327be4fc-1f44-4a91-9e28-e23b24ab72ab",
+      "name": "Query Embedding",
+      "type": "n8n-nodes-base.mySql",
+      "position": [
+        1216,
+        592
+      ],
+      "typeVersion": 2.5,
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "qVYg83f2VGHs9lVg",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT title, content, embedding_vector FROM documents\nWHERE content LIKE '%{{$json.body.message}}%'\n   OR title LIKE '%{{$json.body.message}}%'\nLIMIT 3;",
+        "options": {}
+      },
+      "id": "621a341e-ad58-4fc1-b0d8-4766f5fb26b0",
+      "name": "Ricerca LIKE su testo libero",
+      "type": "n8n-nodes-base.mySql",
+      "position": [
+        880,
+        240
+      ],
+      "typeVersion": 2.5,
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "qVYg83f2VGHs9lVg",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/embeddings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"mxbai-embed-large:335m\",\n  \"prompt\": \"{{$json.message}}\"\n}",
+        "options": {}
+      },
+      "id": "030d06e2-eab0-4e94-854e-f917e9ff9c34",
+      "name": "HTTP Request - Generate Query Embedding",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        784,
+        592
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "def41d40-fc40-4898-afeb-bacf3adc592b",
+      "name": "Respond to Webhook3",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        3104,
+        208
+      ],
+      "typeVersion": 1.4
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calcola similarità coseno e trova documenti più rilevanti\nconst queryEmbedding = $('HTTP Request - Generate Query Embedding').first().json.embedding;\nconst documents = $input.all();\nconst originalQuery = $('Webhook - Interroga AI').first().json.body.message;\n\n// Funzione per calcolare similarità coseno\nfunction cosineSimilarity(vecA, vecB) {\n  if (!Array.isArray(vecA) || !Array.isArray(vecB) || vecA.length !== vecB.length) {\n    console.log('Vettori non validi:', vecA?.length, vecB?.length);\n    return 0;\n  }\n  \n  const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);\n  const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));\n  const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));\n  \n  if (magnitudeA === 0 || magnitudeB === 0) return 0;\n  \n  return dotProduct / (magnitudeA * magnitudeB);\n}\nlet tutti = [];\n// Calcola similarità per ogni documento\nconst documentsWithSimilarity = documents.map(doc => {\n  const storedEmbedding = doc.json.stored_embedding;\n  if (!Array.isArray(storedEmbedding) || storedEmbedding.length === 0) {\n    \n    return { ...doc.json, similarity: 0 };\n  }\n  // Verifica che le dimensioni corrispondano\n  if (storedEmbedding.length !== queryEmbedding.length) {\n    return { ...doc.json, similarity: 0 };\n  }\n  \n  const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);\n  \n  tutti.push(`Documento: ${doc.json.title}, Similarità: ${similarity.toFixed(4)}`)\n  \n  return {\n    ...doc.json,\n    similarity: similarity\n  };\n});\n\n// Ordina per similarità e prendi i top 3\nconst topDocuments = documentsWithSimilarity\n  .sort((a, b) => b.similarity - a.similarity)\n  .slice(0, 3)\n  .filter(doc => doc.similarity > 0.1); // Soglia bassa per debug\n\nconsole.log('Top documents:', topDocuments.map(d => ({ \n  title: d.title, \n  similarity: d.similarity.toFixed(4) \n})));\n\n// Prepara il contesto per l'AI\nconst context = topDocuments.map(doc => \n  `Titolo: ${doc.title}\\nContenuto: ${doc.content}\\nRilevanza: ${(doc.similarity * 100).toFixed(1)}%\\n`\n).join('\\n');\n\nconst prompt = `Contesto dal database (ordinato per rilevanza):\n${context}\n\nDomanda: ${originalQuery}\n\nRispondi utilizzando SOLO le informazioni fornite nel contesto sopra. Se il contesto non è sufficientemente rilevante, dillo chiaramente.`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    original_query: originalQuery,\n    documents_found: topDocuments.length,\n    top_similarity: topDocuments[0]?.similarity || 0,\n    mode: 'semantic_rag',\n    documents: topDocuments.map(d => ({\n      title: d.title,\n      similarity: d.similarity\n    })),\n    debug_info: {\n      query_embedding_length: queryEmbedding?.length,\n      total_documents: documents.length,\n      similarities: documentsWithSimilarity.map(d => d.similarity)\n    }\n  }\n}];"
+      },
+      "id": "43cca260-c7df-4a3a-adff-9eac828af7a7",
+      "name": "Code3",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1952,
+        256
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const ollamaResponse = $input.first().json;\nconst codeNodeData = $('Code3').first().json;\n\nreturn [{\n  json: {\n    query: codeNodeData.original_query,\n    answer: ollamaResponse.response,\n    documents_found: codeNodeData.documents_found,\n    model_used: \"llama3.2:3b\",\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "8ea48782-a7d5-43ee-a5c6-c03f9961ec66",
+      "name": "Code4",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        2928,
+        0
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "adc7d802-fa5f-4f3e-b85b-d0011d848306",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.isNotEmpty() }}",
+              "rightValue": 0
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "04d6a5c2-d76e-40fe-b8f4-07f1fff12765",
+      "name": "If1",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1648,
+        448
+      ],
+      "typeVersion": 2.2,
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gemma3:12b"
+            },
+            {
+              "name": "prompt",
+              "value": "={{ $json.prompt }}"
+            },
+            {
+              "name": "stream",
+              "value": "={{ false }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3ec3a984-fefe-4ffc-a875-03ad2478f676",
+      "name": "HTTP Request3",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        2544,
+        592
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "3d7ba58b-6eed-4319-9183-634c3d678ef5",
+      "name": "Respond to Webhook5",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        3056,
+        592
+      ],
+      "typeVersion": 1.4
+    },
+    {
+      "parameters": {
+        "jsCode": "// Risposta diretta senza database\nconst originalQuery = $('Webhook - Interroga AI').first().json.body.message;\n\nconst prompt = `L'utente ha fatto questa domanda: ${originalQuery}\n\nNon ho trovato informazioni specifiche nei miei documenti. Rispondi comunque alla domanda utilizzando le tue conoscenze generali, ma specifica chiaramente che stai rispondendo senza accesso a documenti specifici.`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    original_query: originalQuery,\n    mode: 'direct'\n  }\n}];"
+      },
+      "id": "c80d3c51-536a-4c6d-9926-48623e252be2",
+      "name": "Code5",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1952,
+        608
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "documents",
+          "cachedResultName": "documents"
+        },
+        "options": {}
+      },
+      "id": "5d274569-5f54-40db-ba6d-ca2db7c730bc",
+      "name": "inserisce embedding vector nella tabella documents",
+      "type": "n8n-nodes-base.mySql",
+      "position": [
+        1568,
+        -288
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "mySql": {
+          "id": "qVYg83f2VGHs9lVg",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepara i dati per l'inserimento\nconst webhookData = $('Cicla i documenti').first().json;\nconst embedding = $input.first().json.embedding;\n\nreturn [{\n  json: {\n    title: webhookData.title,\n    content: webhookData.content,\n    category: webhookData.category || 'generale',\n    model: 'nomic-embed-text',\n    embedding_vector: JSON.stringify({\n      vector: embedding\n    })\n  }\n}];"
+      },
+      "id": "089f32a6-be8c-40a7-af25-62278b7f3cec",
+      "name": "Javascript - Preparazioni dati",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1312,
+        -288
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/embeddings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"mxbai-embed-large:335m\",\n  \"prompt\": \"{{$json.title}} {{$json.content}}\",\n  \"metadata\": {\n    \"title\": \"{{$json.title}}\",\n    \"content\": \"{{$json.content}}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "8c7269dd-2d6b-484a-b71c-6ad1c4db912d",
+      "name": "Ollama Embedding Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1056,
+        -288
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {},
+      "id": "47f6f652-55cb-472e-8c13-27c6ced32695",
+      "name": "Replace Me",
+      "type": "n8n-nodes-base.noOp",
+      "position": [
+        2000,
+        -192
+      ],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "jsCode": "return $json.body"
+      },
+      "id": "abc4742f-918f-449c-8760-c00f9ac2a4fd",
+      "name": "Filtra body",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        480,
+        -384
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "0019b1df-bfe8-4be6-aa1e-cc1708983ef1",
+      "name": "Cicla i documenti",
+      "type": "n8n-nodes-base.splitInBatches",
+      "position": [
+        784,
+        -416
+      ],
+      "typeVersion": 3
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "add-document",
+        "responseMode": "responseNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "82d31123-3f7c-4077-b28b-b2c6b2f33ea5",
+      "name": "Webhook - Insert Documenti",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        272,
+        -384
+      ],
+      "webhookId": "5cbab2ad-47ad-4f49-a204-78bc6edc1e25",
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rag-query",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*",
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "35f94c4c-5b27-46bf-bfbb-b67680fc0a74",
+      "name": "Webhook - Interroga AI",
+      "type": "n8n-nodes-base.webhook",
+      "position": [
+        304,
+        592
+      ],
+      "webhookId": "c89064c7-b3be-4f59-b655-064908786e2e",
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\n  \"success\": true,\n  \"message\": \"Documento aggiunto con embedding\",\n  \"document_id\": \"{{ $json.insertId }}\"\n}",
+        "options": {}
+      },
+      "id": "11b5b9c0-8782-46a8-bd92-533d3455c5c0",
+      "name": "Webhook - Operazione completata",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        2016,
+        -432
+      ],
+      "typeVersion": 1.4
+    },
+    {
+      "parameters": {
+        "jsCode": "\nreturn $input.first().json.body;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        592
+      ],
+      "id": "dcd0f44e-c50a-4042-af28-e27fdd189019",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama3.2:3b"
+            },
+            {
+              "name": "prompt",
+              "value": "={{$json.prompt}}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{ \"0.7\" }}"
+            },
+            {
+              "name": "stream",
+              "value": "={{ false }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a8074b1c-4cd6-454c-a4e9-b49c013266d6",
+      "name": "AI Model llama3.2:3b",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        2480,
+        352
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gemma3:12b"
+            },
+            {
+              "name": "prompt",
+              "value": "={{$json.prompt}}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{ \"0.7\" }}"
+            },
+            {
+              "name": "stream",
+              "value": "={{ false }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "313d81dd-b6e8-4269-8e79-69889bfd98f9",
+      "name": "AI model gemma3:12b",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        2528,
+        80
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "mode": "combineBySql",
+        "query": "SELECT gemma.model as gemma_model, gemma.response  as gemma_response, llama.model as llama_model, llama.response as llama_response from input1 as gemma inner join input2 as llama",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2784,
+        208
+      ],
+      "id": "32391a22-c128-436c-836d-6626cedcfd31",
+      "name": "Merge"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Code3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code3": {
+      "main": [
+        [
+          {
+            "node": "AI model gemma3:12b",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Model llama3.2:3b",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code4": {
+      "main": [
+        []
+      ]
+    },
+    "Code5": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request3": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Embedding": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ricerca LIKE su testo libero": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Generate Query Embedding": {
+      "main": [
+        [
+          {
+            "node": "Query Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "inserisce embedding vector nella tabella documents": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Javascript - Preparazioni dati": {
+      "main": [
+        [
+          {
+            "node": "inserisce embedding vector nella tabella documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Embedding Request": {
+      "main": [
+        [
+          {
+            "node": "Javascript - Preparazioni dati",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replace Me": {
+      "main": [
+        [
+          {
+            "node": "Cicla i documenti",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtra body": {
+      "main": [
+        [
+          {
+            "node": "Cicla i documenti",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cicla i documenti": {
+      "main": [
+        [
+          {
+            "node": "Webhook - Operazione completata",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama Embedding Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Insert Documenti": {
+      "main": [
+        [
+          {
+            "node": "Filtra body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Interroga AI": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Generate Query Embedding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Model llama3.2:3b": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "AI model gemma3:12b": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1a76a9d8-252a-4741-8734-d178b9efafaa",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a545277ce97f8bec0bd3d8b1a50e664c97f656b13453701a334fdd827158147b"
+  },
+  "id": "Wb0MWeL4bpOhI6Qa",
+  "tags": []
+}
