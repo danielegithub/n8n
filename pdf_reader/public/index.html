@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>PDF Reader</title>
+</head>
+<body>
+<h1>Carica uno o più PDF</h1>
+<form id="uploadForm">
+    <input type="file" id="pdfFiles" name="pdfs" accept="application/pdf" multiple required>
+    <button type="submit">Carica</button>
+</form>
+<div id="output"></div>
+
+<script>
+const form = document.getElementById('uploadForm');
+const output = document.getElementById('output');
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const files = document.getElementById('pdfFiles').files;
+    const formData = new FormData();
+
+    for (const file of files) {
+        formData.append('pdfs', file);
+    }
+
+    const res = await fetch('/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.files) {
+        output.innerHTML = '';
+        data.files.forEach(f => {
+            const div = document.createElement('div');
+            div.innerHTML = `<h2>${f.title}</h2><pre>${f.content}</pre>`;
+            output.appendChild(div);
+        });
+    } else {
+        output.textContent = data.error || 'Errore sconosciuto';
+    }
+});
+</script>
+</body>
+</html>

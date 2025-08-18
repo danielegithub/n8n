@@ -1,0 +1,14 @@
+# Node modules
+node_modules/
+
+# Upload temporanei
+uploads/
+
+# Log files
+*.log
+
+# File npm
+package-lock.json
+
+# IDE
+.vscode/
