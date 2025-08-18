@@ -1,25 +1,25 @@
 {
-  "name": "AI con RAG da MySQL",
+  "name": "Workflow per aggiungere documenti",
   "nodes": [
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, title, content, \n       JSON_EXTRACT(embedding_vector, '$.vector') as stored_embedding\nFROM documents;",
+        "query": "SELECT id, title, content, chunk_index, total_chunks,\n       JSON_EXTRACT(embedding_vector, '$.vector') as stored_embedding\nFROM documents\nORDER BY title, chunk_index;",
         "options": {}
       },
-      "id": "327be4fc-1f44-4a91-9e28-e23b24ab72ab",
+      "id": "2074dff9-6495-4afe-af1b-1bd611460e87",
       "name": "Query Embedding",
       "type": "n8n-nodes-base.mySql",
       "position": [
-        1216,
-        592
+        -3104,
+        224
       ],
       "typeVersion": 2.5,
       "alwaysOutputData": true,
       "credentials": {
         "mySql": {
-          "id": "qVYg83f2VGHs9lVg",
-          "name": "MySQL account"
+          "id": "2psaNOPgac7ztOK8",
+          "name": "MySQL account 2"
         }
       }
     },
@@ -29,19 +29,19 @@
         "query": "SELECT title, content, embedding_vector FROM documents\nWHERE content LIKE '%{{$json.body.message}}%'\n   OR title LIKE '%{{$json.body.message}}%'\nLIMIT 3;",
         "options": {}
       },
-      "id": "621a341e-ad58-4fc1-b0d8-4766f5fb26b0",
+      "id": "a0fae5d0-4762-41c0-9abe-5e4e4c31d147",
       "name": "Ricerca LIKE su testo libero",
       "type": "n8n-nodes-base.mySql",
       "position": [
-        880,
-        240
+        -3104,
+        -112
       ],
       "typeVersion": 2.5,
       "alwaysOutputData": true,
       "credentials": {
         "mySql": {
-          "id": "qVYg83f2VGHs9lVg",
-          "name": "MySQL account"
+          "id": "2psaNOPgac7ztOK8",
+          "name": "MySQL account 2"
         }
       }
     },
@@ -60,15 +60,15 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"mxbai-embed-large:335m\",\n  \"prompt\": \"{{$json.message}}\"\n}",
+        "jsonBody": "={\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"{{$json.message}}\"\n}",
         "options": {}
       },
-      "id": "030d06e2-eab0-4e94-854e-f917e9ff9c34",
+      "id": "572cd23a-ec82-4adc-8fec-c33904e5943b",
       "name": "HTTP Request - Generate Query Embedding",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        784,
-        592
+        -3536,
+        224
       ],
       "typeVersion": 4.2
     },
@@ -78,12 +78,12 @@
         "responseBody": "={{ $json }}",
         "options": {}
       },
-      "id": "def41d40-fc40-4898-afeb-bacf3adc592b",
+      "id": "c7328e7c-6f6a-4bac-ad40-e000c628a446",
       "name": "Respond to Webhook3",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        3104,
-        208
+        -1216,
+        -160
       ],
       "typeVersion": 1.4
     },
@@ -91,12 +91,12 @@
       "parameters": {
         "jsCode": "// Calcola similarità coseno ottimizzato per documenti grossi\nconst queryEmbedding = $('HTTP Request - Generate Query Embedding').first().json.embedding;\nconst documents = $input.all();\nconst originalQuery = $('Webhook - Interroga AI').first().json.body.message;\n\nconsole.log(`Processando ${documents.length} documenti con query: \"${originalQuery}\"`);\n\n// Funzione ottimizzata per similarità coseno\nfunction cosineSimilarity(vecA, vecB) {\n  if (!Array.isArray(vecA) || !Array.isArray(vecB)) {\n    console.warn('Vettori non sono array');\n    return 0;\n  }\n  \n  if (vecA.length !== vecB.length) {\n    console.warn(`Dimensioni diverse: ${vecA.length} vs ${vecB.length}`);\n    return 0;\n  }\n  \n  let dotProduct = 0;\n  let magnitudeA = 0;\n  let magnitudeB = 0;\n  \n  // Calcolo ottimizzato in un solo loop\n  for (let i = 0; i < vecA.length; i++) {\n    const a = vecA[i] || 0;\n    const b = vecB[i] || 0;\n    dotProduct += a * b;\n    magnitudeA += a * a;\n    magnitudeB += b * b;\n  }\n  \n  const magnitude = Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB);\n  return magnitude > 0 ? dotProduct / magnitude : 0;\n}\n\n// Pre-filtra documenti con embedding validi\nconst validDocuments = documents.filter(doc => {\n  const embedding = doc.json.stored_embedding;\n  return Array.isArray(embedding) && \n         embedding.length === queryEmbedding.length && \n         embedding.length > 0;\n});\n\nconsole.log(`Documenti validi per il calcolo: ${validDocuments.length}/${documents.length}`);\n\n// Calcola similarità solo per documenti validi\nconst documentsWithSimilarity = validDocuments.map(doc => {\n  const storedEmbedding = doc.json.stored_embedding;\n  const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);\n  \n  return {\n    ...doc.json,\n    similarity: similarity,\n    // Aggiungi metadata utili per il debug\n    doc_length: doc.json.content?.length || 0,\n    chunk_info: doc.json.chunk_index !== undefined ? \n      `${doc.json.chunk_index + 1}/${doc.json.total_chunks}` : 'single'\n  };\n});\n\n// Ordina per similarità (più efficiente con sort nativo)\ndocumentsWithSimilarity.sort((a, b) => b.similarity - a.similarity);\n\n// Soglia dinamica basata sulla distribuzione\nconst similarities = documentsWithSimilarity.map(d => d.similarity);\nconst avgSimilarity = similarities.reduce((a, b) => a + b, 0) / similarities.length;\nconst threshold = Math.max(0.2, avgSimilarity * 0.7); // Soglia dinamica\n\n// Prendi top documenti con soglia intelligente\nconst topDocuments = documentsWithSimilarity\n  .slice(0, 5) // Più documenti per documenti grossi\n  .filter(doc => doc.similarity > threshold);\n\nconsole.log(`Top documents (soglia: ${threshold.toFixed(3)}):`);\nconsole.log(topDocuments.map(d => ({\n  title: d.title?.substring(0, 50) + '...',\n  similarity: d.similarity.toFixed(4),\n  chunk: d.chunk_info\n})));\n\n// Gestisci caso senza risultati rilevanti\nif (topDocuments.length === 0) {\n  console.log('Nessun documento sopra la soglia, uso i top 2 comunque');\n  topDocuments.push(...documentsWithSimilarity.slice(0, 2));\n}\n\n// Prepara contesto ottimizzato\nconst context = topDocuments.map((doc, idx) => {\n  // Limita lunghezza contenuto per evitare prompt troppo lunghi\n  const maxContentLength = 1500;\n  const content = doc.content?.length > maxContentLength ? \n    doc.content.substring(0, maxContentLength) + '...' : \n    doc.content;\n  \n  return `[Documento ${idx + 1}] ${doc.title}\nContenuto: ${content}\nRilevanza: ${(doc.similarity * 100).toFixed(1)}%\n${doc.chunk_info !== 'single' ? `Sezione: ${doc.chunk_info}` : ''}\n---`;\n}).join('\\n');\n\nconst prompt = `Contesto dai documenti più rilevanti (${topDocuments.length} trovati):\n${context}\n\nDomanda dell'utente: ${originalQuery}\n\nIstruzioni:\n- Rispondi utilizzando SOLO le informazioni del contesto sopra\n- Se le informazioni non sono sufficienti, dillo chiaramente\n- Cita i documenti specifici quando possibile\n- Se trovi informazioni contrastanti, segnalalo`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    original_query: originalQuery,\n    documents_found: topDocuments.length,\n    top_similarity: topDocuments[0]?.similarity || 0,\n    threshold_used: threshold,\n    mode: 'semantic_rag_optimized',\n    documents: topDocuments.map(d => ({\n      title: d.title,\n      similarity: d.similarity,\n      chunk_info: d.chunk_info,\n      content_length: d.doc_length\n    })),\n    debug_info: {\n      query_embedding_length: queryEmbedding?.length,\n      total_documents: documents.length,\n      valid_documents: validDocuments.length,\n      avg_similarity: avgSimilarity,\n      similarity_distribution: {\n        min: Math.min(...similarities),\n        max: Math.max(...similarities),\n        avg: avgSimilarity\n      }\n    }\n  }\n}];"
       },
-      "id": "43cca260-c7df-4a3a-adff-9eac828af7a7",
+      "id": "4d1ab59f-f859-4a66-9f4f-a5f1a911c954",
       "name": "Code3",
       "type": "n8n-nodes-base.code",
       "position": [
-        1952,
-        256
+        -2368,
+        -112
       ],
       "typeVersion": 2
     },
@@ -104,12 +104,12 @@
       "parameters": {
         "jsCode": "const ollamaResponse = $input.first().json;\nconst codeNodeData = $('Code3').first().json;\n\nreturn [{\n  json: {\n    query: codeNodeData.original_query,\n    answer: ollamaResponse.response,\n    documents_found: codeNodeData.documents_found,\n    model_used: \"llama3.2:3b\",\n    timestamp: new Date().toISOString()\n  }\n}];"
       },
-      "id": "8ea48782-a7d5-43ee-a5c6-c03f9961ec66",
+      "id": "13d58cd1-c15f-45dc-89fb-078ada3177b2",
       "name": "Code4",
       "type": "n8n-nodes-base.code",
       "position": [
-        2928,
-        0
+        -1392,
+        -368
       ],
       "typeVersion": 2
     },
@@ -138,12 +138,12 @@
         },
         "options": {}
       },
-      "id": "04d6a5c2-d76e-40fe-b8f4-07f1fff12765",
+      "id": "8870371f-5583-4588-8823-48bf43f14633",
       "name": "If1",
       "type": "n8n-nodes-base.if",
       "position": [
-        1648,
-        448
+        -2672,
+        80
       ],
       "typeVersion": 2.2,
       "alwaysOutputData": false
@@ -174,12 +174,12 @@
         },
         "options": {}
       },
-      "id": "3ec3a984-fefe-4ffc-a875-03ad2478f676",
+      "id": "f4b1aef9-99b8-42d8-b788-a25b2a874e07",
       "name": "HTTP Request3",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        2544,
-        592
+        -1776,
+        224
       ],
       "typeVersion": 4.2
     },
@@ -187,12 +187,12 @@
       "parameters": {
         "options": {}
       },
-      "id": "3d7ba58b-6eed-4319-9183-634c3d678ef5",
+      "id": "186ac424-d266-4a4a-914e-632895d6d604",
       "name": "Respond to Webhook5",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        3056,
-        592
+        -1264,
+        224
       ],
       "typeVersion": 1.4
     },
@@ -200,88 +200,23 @@
       "parameters": {
         "jsCode": "// Risposta diretta senza database\nconst originalQuery = $('Webhook - Interroga AI').first().json.body.message;\n\nconst prompt = `L'utente ha fatto questa domanda: ${originalQuery}\n\nNon ho trovato informazioni specifiche nei miei documenti. Rispondi comunque alla domanda utilizzando le tue conoscenze generali, ma specifica chiaramente che stai rispondendo senza accesso a documenti specifici.`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    original_query: originalQuery,\n    mode: 'direct'\n  }\n}];"
       },
-      "id": "c80d3c51-536a-4c6d-9926-48623e252be2",
+      "id": "498f602e-e8c0-450a-af2f-46dce6f9713d",
       "name": "Code5",
       "type": "n8n-nodes-base.code",
       "position": [
-        1952,
-        608
+        -2368,
+        240
       ],
       "typeVersion": 2
-    },
-    {
-      "parameters": {
-        "table": {
-          "__rl": true,
-          "mode": "list",
-          "value": "documents",
-          "cachedResultName": "documents"
-        },
-        "options": {}
-      },
-      "id": "5d274569-5f54-40db-ba6d-ca2db7c730bc",
-      "name": "inserisce embedding vector nella tabella documents",
-      "type": "n8n-nodes-base.mySql",
-      "position": [
-        1568,
-        -288
-      ],
-      "typeVersion": 2.5,
-      "credentials": {
-        "mySql": {
-          "id": "qVYg83f2VGHs9lVg",
-          "name": "MySQL account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// Prepara i dati per l'inserimento\nconst webhookData = $('Cicla i documenti').first().json;\nconst embedding = $input.first().json.embedding;\n\nreturn [{\n  json: {\n    title: webhookData.title,\n    content: webhookData.content,\n    category: webhookData.category || 'generale',\n    model: 'nomic-embed-text',\n    embedding_vector: JSON.stringify({\n      vector: embedding\n    })\n  }\n}];"
-      },
-      "id": "089f32a6-be8c-40a7-af25-62278b7f3cec",
-      "name": "Javascript - Preparazioni dati",
-      "type": "n8n-nodes-base.code",
-      "position": [
-        1312,
-        -288
-      ],
-      "typeVersion": 2
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://ollama:11434/api/embeddings",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"mxbai-embed-large:335m\",\n  \"prompt\": \"{{$json.title}} {{$json.content}}\",\n  \"metadata\": {\n    \"title\": \"{{$json.title}}\",\n    \"content\": \"{{$json.content}}\"\n  }\n}",
-        "options": {}
-      },
-      "id": "8c7269dd-2d6b-484a-b71c-6ad1c4db912d",
-      "name": "Ollama Embedding Request",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [
-        1056,
-        -288
-      ],
-      "typeVersion": 4.2
     },
     {
       "parameters": {},
-      "id": "47f6f652-55cb-472e-8c13-27c6ced32695",
+      "id": "496fd5ef-e22c-47f2-a1c2-02d997a4f748",
       "name": "Replace Me",
       "type": "n8n-nodes-base.noOp",
       "position": [
-        2000,
-        -192
+        -2112,
+        -560
       ],
       "typeVersion": 1
     },
@@ -289,12 +224,12 @@
       "parameters": {
         "jsCode": "return $json.body"
       },
-      "id": "abc4742f-918f-449c-8760-c00f9ac2a4fd",
+      "id": "9a53b1f6-64ba-4e84-a7d7-335806d21ebf",
       "name": "Filtra body",
       "type": "n8n-nodes-base.code",
       "position": [
-        480,
-        -384
+        -3840,
+        -752
       ],
       "typeVersion": 2
     },
@@ -302,12 +237,12 @@
       "parameters": {
         "options": {}
       },
-      "id": "0019b1df-bfe8-4be6-aa1e-cc1708983ef1",
+      "id": "3b1f10db-679f-4482-b152-cadfa172d731",
       "name": "Cicla i documenti",
       "type": "n8n-nodes-base.splitInBatches",
       "position": [
-        784,
-        -416
+        -3536,
+        -784
       ],
       "typeVersion": 3
     },
@@ -327,12 +262,12 @@
           }
         }
       },
-      "id": "82d31123-3f7c-4077-b28b-b2c6b2f33ea5",
+      "id": "cecac8a5-e13c-429d-81cb-19b9d35949d6",
       "name": "Webhook - Insert Documenti",
       "type": "n8n-nodes-base.webhook",
       "position": [
-        272,
-        -384
+        -4048,
+        -752
       ],
       "webhookId": "5cbab2ad-47ad-4f49-a204-78bc6edc1e25",
       "typeVersion": 2.1
@@ -354,12 +289,12 @@
           }
         }
       },
-      "id": "35f94c4c-5b27-46bf-bfbb-b67680fc0a74",
+      "id": "3a82f6e6-cc04-4d66-ad39-023116bd83f9",
       "name": "Webhook - Interroga AI",
       "type": "n8n-nodes-base.webhook",
       "position": [
-        304,
-        592
+        -4016,
+        224
       ],
       "webhookId": "c89064c7-b3be-4f59-b655-064908786e2e",
       "typeVersion": 2.1
@@ -370,12 +305,12 @@
         "responseBody": "{\n  \"success\": true,\n  \"message\": \"Documento aggiunto con embedding\",\n  \"document_id\": \"{{ $json.insertId }}\"\n}",
         "options": {}
       },
-      "id": "11b5b9c0-8782-46a8-bd92-533d3455c5c0",
+      "id": "7f4d9554-aafd-4d9c-94cc-03787dea56ae",
       "name": "Webhook - Operazione completata",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        2016,
-        -432
+        -2096,
+        -800
       ],
       "typeVersion": 1.4
     },
@@ -383,12 +318,12 @@
       "parameters": {
         "jsCode": "\nreturn $input.first().json.body;"
       },
-      "id": "dcd0f44e-c50a-4042-af28-e27fdd189019",
+      "id": "52c820af-6e6e-4911-9d9d-84dbfa002789",
       "name": "Code",
       "type": "n8n-nodes-base.code",
       "position": [
-        512,
-        592
+        -3808,
+        224
       ],
       "typeVersion": 2
     },
@@ -422,12 +357,12 @@
         },
         "options": {}
       },
-      "id": "a8074b1c-4cd6-454c-a4e9-b49c013266d6",
+      "id": "a7a847a8-bc43-4bd6-b795-30ad15037dd5",
       "name": "AI Model llama3.2:3b",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        2512,
-        368
+        -1808,
+        0
       ],
       "typeVersion": 4.2
     },
@@ -461,12 +396,12 @@
         },
         "options": {}
       },
-      "id": "313d81dd-b6e8-4269-8e79-69889bfd98f9",
+      "id": "a7b9cb70-fd64-4191-9b87-e154fe93d7df",
       "name": "AI model gemma3:12b",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        2528,
-        80
+        -1792,
+        -288
       ],
       "typeVersion": 4.2
     },
@@ -476,14 +411,92 @@
         "query": "SELECT gemma.model as gemma_model, gemma.response  as gemma_response, llama.model as llama_model, llama.response as llama_response from input1 as gemma inner join input2 as llama",
         "options": {}
       },
-      "id": "32391a22-c128-436c-836d-6626cedcfd31",
+      "id": "7597c819-44ad-4c39-957b-5c67b4dcd8cc",
       "name": "Merge",
       "type": "n8n-nodes-base.merge",
       "position": [
-        2784,
-        208
+        -1536,
+        -160
       ],
       "typeVersion": 3.2
+    },
+    {
+      "parameters": {
+        "table": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {}
+      },
+      "id": "fd11f489-6eb3-468f-a010-9ae878c20580",
+      "name": "inserisce embedding vector nella tabella documents1",
+      "type": "n8n-nodes-base.mySql",
+      "position": [
+        -2544,
+        -656
+      ],
+      "typeVersion": 2.5,
+      "credentials": {
+        "mySql": {
+          "id": "2psaNOPgac7ztOK8",
+          "name": "MySQL account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nodo: Javascript - Preparazioni dati (versione che usa metadata JSON)\nconst embeddingsResponses = $input.all();\nconst originalChunks = $('Chunking').all().map(i => i.json);\n\nconst nEmb = embeddingsResponses.length;\nconst nChunks = originalChunks.length;\nconst n = Math.min(nEmb, nChunks);\n\nif (n === 0) {\n  return [{\n    json: {\n      error: 'Nessun embedding o nessun chunk trovato',\n      embeddings_received: nEmb,\n      chunks_found: nChunks\n    }\n  }];\n}\n\nconst out = [];\n\nfor (let i = 0; i < n; i++) {\n  const embItem = embeddingsResponses[i].json || {};\n  const chunk = originalChunks[i] || {};\n\n  const vector =\n    embItem.embedding ||\n    embItem.data?.[0]?.embedding ||\n    embItem.body?.embedding ||\n    embItem.embeddings ||\n    embItem.result?.embedding ||\n    null;\n\n  const embedding_present = Array.isArray(vector) && vector.length > 0;\n\n  // Costruiamo il campo metadata come JSON string (compatibile con colonna JSON)\n  const metadataObj = {\n    debug: {\n      embedding_found: embedding_present,\n      embedding_length: Array.isArray(vector) ? vector.length : 0,\n      index: i,\n      embeddings_received: nEmb,\n      chunks_found: nChunks\n    }\n    // puoi aggiungere altri campi utili qui\n  };\n\n  out.push({\n    json: {\n      title: chunk.title || chunk.original_title || embItem.title || 'untitled',\n      original_title: chunk.original_title || chunk.title || null,\n      content: chunk.content || embItem.content || null,\n      category: chunk.category || 'generale',\n      model: 'nomic-embed-text',\n      chunk_index: typeof chunk.chunk_index !== 'undefined' ? chunk.chunk_index : null,\n      total_chunks: typeof chunk.total_chunks !== 'undefined' ? chunk.total_chunks : null,\n      is_chunked: chunk.is_chunked ? 1 : 0,\n      embedding_vector: JSON.stringify({\n        vector: embedding_present ? vector : null,\n        model: 'nomic-embed-text',\n        created_at: new Date().toISOString()\n      }),\n      metadata: JSON.stringify(metadataObj)\n    }\n  });\n}\n\n// se mismatch, aggiungiamo un avviso (non necessario per l'inserimento)\nif (nEmb !== nChunks) {\n  out.unshift({\n    json: {\n      warning: 'Mismatch tra numero di embeddings e numero di chunk originali',\n      embeddings_received: nEmb,\n      chunks_found: nChunks,\n      used_items: n\n    }\n  });\n}\n\nreturn out;\n"
+      },
+      "id": "cc82accc-40f1-4e7b-9e67-0d3d1a6854bb",
+      "name": "Javascript - Preparazioni dati1",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -2800,
+        -656
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/embeddings",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"{{$json.title}} {{$json.content}}\",\n  \"metadata\": {\n    \"title\": \"{{$json.title}}\",\n    \"content\": \"{{$json.content}}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "5dda7078-b647-40e3-8d8a-7f71e75aab06",
+      "name": "Ollama Embedding Request1",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -3056,
+        -656
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Funzione per dividere documenti lunghi in chunks semantici\nfunction intelligentChunking(title, content, maxChunkSize = 1000, overlap = 200) {\n  if (content.length <= maxChunkSize) {\n    return [{\n      title: title,\n      content: content,\n      chunk_index: 0,\n      total_chunks: 1,\n      is_chunked: false\n    }];\n  }\n\n  const chunks = [];\n  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);\n  \n  let currentChunk = '';\n  let chunkIndex = 0;\n  \n  for (let i = 0; i < sentences.length; i++) {\n    const sentence = sentences[i].trim() + '.';\n    \n    // Se aggiungendo questa frase superiamo la dimensione massima\n    if (currentChunk.length + sentence.length > maxChunkSize && currentChunk.length > 0) {\n      // Salva il chunk corrente\n      chunks.push({\n        title: `${title} - Parte ${chunkIndex + 1}`,\n        content: currentChunk.trim(),\n        chunk_index: chunkIndex,\n        total_chunks: 0, // Sarà aggiornato dopo\n        is_chunked: true,\n        original_title: title\n      });\n      \n      // Inizia nuovo chunk con overlap\n      const overlapText = getOverlapText(currentChunk, overlap);\n      currentChunk = overlapText + sentence;\n      chunkIndex++;\n    } else {\n      currentChunk += ' ' + sentence;\n    }\n  }\n  \n  // Aggiungi l'ultimo chunk se non vuoto\n  if (currentChunk.trim().length > 0) {\n    chunks.push({\n      title: `${title} - Parte ${chunkIndex + 1}`,\n      content: currentChunk.trim(),\n      chunk_index: chunkIndex,\n      total_chunks: 0,\n      is_chunked: true,\n      original_title: title\n    });\n  }\n  \n  // Aggiorna total_chunks\n  chunks.forEach(chunk => chunk.total_chunks = chunks.length);\n  \n  return chunks;\n}\n\nfunction getOverlapText(text, overlapSize) {\n  if (text.length <= overlapSize) return text;\n  \n  // Trova l'ultimo punto prima della dimensione overlap\n  const overlapText = text.slice(-overlapSize);\n  const lastPeriod = overlapText.lastIndexOf('.');\n  \n  if (lastPeriod > overlapSize / 2) {\n    return overlapText.slice(lastPeriod + 1).trim() + ' ';\n  }\n  \n  return overlapText + ' ';\n}\n\n// Modifica per il tuo workflow n8n - da usare prima dell'embedding\nconst input = $input.first().json;\nconst chunks = intelligentChunking(input.title, input.content);\n\n// Restituisci tutti i chunks per processarli individualmente\nreturn chunks.map(chunk => ({ json: chunk }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3328,
+        -688
+      ],
+      "id": "c5967c67-a2c9-4d54-9ca7-49acd40b3e5d",
+      "name": "Chunking"
     }
   ],
   "pinData": {},
@@ -531,11 +544,6 @@
             "index": 0
           }
         ]
-      ]
-    },
-    "Code4": {
-      "main": [
-        []
       ]
     },
     "Code5": {
@@ -615,7 +623,7 @@
         ],
         [
           {
-            "node": "Ollama Embedding Request",
+            "node": "Chunking",
             "type": "main",
             "index": 0
           }
@@ -655,17 +663,6 @@
         ]
       ]
     },
-    "Ollama Embedding Request": {
-      "main": [
-        [
-          {
-            "node": "Javascript - Preparazioni dati",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Webhook - Insert Documenti": {
       "main": [
         [
@@ -688,17 +685,6 @@
         ]
       ]
     },
-    "Javascript - Preparazioni dati": {
-      "main": [
-        [
-          {
-            "node": "inserisce embedding vector nella tabella documents",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "HTTP Request - Generate Query Embedding": {
       "main": [
         [
@@ -710,7 +696,7 @@
         ]
       ]
     },
-    "inserisce embedding vector nella tabella documents": {
+    "inserisce embedding vector nella tabella documents1": {
       "main": [
         [
           {
@@ -720,17 +706,50 @@
           }
         ]
       ]
+    },
+    "Javascript - Preparazioni dati1": {
+      "main": [
+        [
+          {
+            "node": "inserisce embedding vector nella tabella documents1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama Embedding Request1": {
+      "main": [
+        [
+          {
+            "node": "Javascript - Preparazioni dati1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunking": {
+      "main": [
+        [
+          {
+            "node": "Ollama Embedding Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "84654c3e-3dd3-469c-84fd-69335e8b7c98",
+  "versionId": "63e512c7-630b-4fef-a682-b4d01c05cf68",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "a545277ce97f8bec0bd3d8b1a50e664c97f656b13453701a334fdd827158147b"
+    "instanceId": "c750a0f005354c505cfee9864eddaa612baefd4dc59fd3519a89e46c321a06d7"
   },
-  "id": "Wb0MWeL4bpOhI6Qa",
+  "id": "k95Q8uhPFLoBTV7N",
   "tags": []
 }
