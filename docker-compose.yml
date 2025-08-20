@@ -29,6 +29,14 @@ services:
       - ollama_data:/root/.ollama
     networks:
       - rag_network
+    deploy:
+        resources:
+          reservations:
+            devices:
+              - driver: nvidia
+                count: 1
+                capabilities: [gpu]
+      
     # Uncomment if you have NVIDIA GPU support
     # deploy:
     #   resources:
@@ -65,7 +73,35 @@ services:
     depends_on:
       - mysql
       - ollama
-
+  postgres:
+    image: postgres:15
+    container_name: postgres_rag
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: n8n_user
+      POSTGRES_PASSWORD: n8n_password
+      POSTGRES_DB: rag_database
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - rag_network
+      
+  # Optional: alternativa leggera a pgAdmin
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: pgweb_rag
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgres://n8n_user:n8n_password@postgres:5432/rag_database?sslmode=disable"
+    ports:
+      - "8081:8081"
+    networks:
+      - rag_network
+    depends_on:
+       - postgres
   # Optional: phpMyAdmin for database management
   phpmyadmin:
     image: phpmyadmin:latest
@@ -88,6 +124,8 @@ volumes:
   ollama_data:
     driver: local
   n8n_data:
+    driver: local
+  postgres_data:
     driver: local
 
 networks:

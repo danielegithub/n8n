@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Caricamento Excel</title>
+  </head>
+  <body>
+    <h1>Carica File Excel</h1>
+
+    <!-- Upload Excel -->
+    <form id="uploadForm">
+      <input type="file" id="excel" name="excel" accept=".xlsx,.xls" required />
+      <button type="submit" id="submitBtn">Carica</button>
+    </form>
+
+    <div id="loading" style="display: none">Elaborazione...</div>
+    <div id="result"></div>
+    <div id="error" style="color: red"></div>
+
+    <!-- Interroga corsi -->
+    <h2>Interroga Corsi</h2>
+    <button id="interrogaBtn" onclick="interrogaCorsi()">Interroga</button>
+    <div id="loadingInterroga" style="display: none">Interrogazione...</div>
+    <div id="resultInterroga"></div>
+    <div id="errorInterroga" style="color: red"></div>
+
+    <script>
+      // Upload Excel
+      document
+        .getElementById("uploadForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const file = document.getElementById("excel").files[0];
+          if (!file) return alert("Seleziona un file!");
+          document.getElementById("loading").style.display = "block";
+
+          try {
+            const formData = new FormData();
+            formData.append("excel", file);
+            const res = await fetch("/upload-excel", {
+              method: "POST",
+              body: formData,
+            });
+            const data = await res.json();
+            document.getElementById("result").textContent = JSON.stringify(
+              data,
+              null,
+              2
+            );
+          } catch (err) {
+            document.getElementById("error").textContent =
+              "Errore: " + err.message;
+          } finally {
+            document.getElementById("loading").style.display = "none";
+          }
+        });
+
+      // Interroga corsi
+      async function interrogaCorsi() {
+        document.getElementById("loadingInterroga").style.display = "block";
+        try {
+          // chiamata al tuo backend (porta 3000 di Express)
+          const res = await fetch("http://localhost:3000/interroga-corsi");
+          const data = await res.json();
+          let newText = data.replace(/\n/g,"<br />")
+          let newText2 = newText.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>")
+          document.getElementById('resultInterroga').innerHTML = newText2 ;
+        } catch (err) {
+          document.getElementById("errorInterroga").textContent =
+            "Errore: " + err.message;
+        } finally {
+          document.getElementById("loadingInterroga").style.display = "none";
+        }
+      }
+
+      
+    </script>
+  </body>
+</html>
