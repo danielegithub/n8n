@@ -62,9 +62,12 @@
           // chiamata al tuo backend (porta 3000 di Express)
           const res = await fetch("http://localhost:3000/interroga-corsi");
           const data = await res.json();
-          let newText = data.replace(/\n/g,"<br />")
-          let newText2 = newText.replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>")
-          document.getElementById('resultInterroga').innerHTML = newText2 ;
+          let newText = data.replace(/\n/g, "<br />");
+          let newText2 = newText.replace(
+            /\*\*([\s\S]+?)\*\*/g,
+            "<strong>$1</strong>"
+          );
+          document.getElementById("resultInterroga").innerHTML = newText2;
         } catch (err) {
           document.getElementById("errorInterroga").textContent =
             "Errore: " + err.message;
@@ -72,8 +75,6 @@
           document.getElementById("loadingInterroga").style.display = "none";
         }
       }
-
-      
     </script>
   </body>
 </html>

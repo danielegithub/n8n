@@ -16,15 +16,15 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"{{$json.message}}\"\n}",
+        "jsonBody": "={\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"{{$json.question}}\"\n}",
         "options": {}
       },
-      "id": "4820513a-6d61-4a6a-a505-be2175d9935b",
+      "id": "7b0352be-47a2-40ef-97c1-b7b5cf9a2fe9",
       "name": "HTTP Request - Generate Query Embedding",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        -3504,
-        304
+        -2592,
+        672
       ],
       "typeVersion": 4.2
     },
@@ -34,12 +34,12 @@
         "responseBody": "={{ $json }}",
         "options": {}
       },
-      "id": "e75f25ef-07d4-427e-b7b5-6f43e39ab984",
+      "id": "09ba226f-f100-44d8-a315-0dd4589a99b1",
       "name": "Respond to Webhook3",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        -1184,
-        -80
+        224,
+        320
       ],
       "typeVersion": 1.4
     },
@@ -47,12 +47,12 @@
       "parameters": {
         "jsCode": "// Calcola similarità coseno ottimizzato per documenti grossi\nconst queryEmbedding = $('HTTP Request - Generate Query Embedding').first().json.embedding;\nconst documents = $input.all();\nconst originalQuery = $('Webhook - Interroga AI').first().json.body.message;\n\nconsole.log(`Processando ${documents.length} documenti con query: \"${originalQuery}\"`);\n\n// Funzione ottimizzata per similarità coseno\nfunction cosineSimilarity(vecA, vecB) {\n  if (!Array.isArray(vecA) || !Array.isArray(vecB)) {\n    console.warn('Vettori non sono array');\n    return 0;\n  }\n  \n  if (vecA.length !== vecB.length) {\n    console.warn(`Dimensioni diverse: ${vecA.length} vs ${vecB.length}`);\n    return 0;\n  }\n  \n  let dotProduct = 0;\n  let magnitudeA = 0;\n  let magnitudeB = 0;\n  \n  // Calcolo ottimizzato in un solo loop\n  for (let i = 0; i < vecA.length; i++) {\n    const a = vecA[i] || 0;\n    const b = vecB[i] || 0;\n    dotProduct += a * b;\n    magnitudeA += a * a;\n    magnitudeB += b * b;\n  }\n  \n  const magnitude = Math.sqrt(magnitudeA) * Math.sqrt(magnitudeB);\n  return magnitude > 0 ? dotProduct / magnitude : 0;\n}\n\n// Pre-filtra documenti con embedding validi\nconst validDocuments = documents.filter(doc => {\n  const embedding = doc.json.stored_embedding;\n  return Array.isArray(embedding) && \n         embedding.length === queryEmbedding.length && \n         embedding.length > 0;\n});\n\nconsole.log(`Documenti validi per il calcolo: ${validDocuments.length}/${documents.length}`);\n\n// Calcola similarità solo per documenti validi\nconst documentsWithSimilarity = validDocuments.map(doc => {\n  const storedEmbedding = doc.json.stored_embedding;\n  const similarity = cosineSimilarity(queryEmbedding, storedEmbedding);\n  \n  return {\n    ...doc.json,\n    similarity: similarity,\n    // Aggiungi metadata utili per il debug\n    doc_length: doc.json.content?.length || 0,\n    chunk_info: doc.json.chunk_index !== undefined ? \n      `${doc.json.chunk_index + 1}/${doc.json.total_chunks}` : 'single'\n  };\n});\n\n// Ordina per similarità (più efficiente con sort nativo)\ndocumentsWithSimilarity.sort((a, b) => b.similarity - a.similarity);\n\n// Soglia dinamica basata sulla distribuzione\nconst similarities = documentsWithSimilarity.map(d => d.similarity);\nconst avgSimilarity = similarities.reduce((a, b) => a + b, 0) / similarities.length;\nconst threshold = Math.max(0.2, avgSimilarity * 0.7); // Soglia dinamica\n\n// Prendi top documenti con soglia intelligente\nconst topDocuments = documentsWithSimilarity\n  .slice(0, 5) // Più documenti per documenti grossi\n  .filter(doc => doc.similarity > threshold);\n\nconsole.log(`Top documents (soglia: ${threshold.toFixed(3)}):`);\nconsole.log(topDocuments.map(d => ({\n  title: d.title?.substring(0, 50) + '...',\n  similarity: d.similarity.toFixed(4),\n  chunk: d.chunk_info\n})));\n\n// Gestisci caso senza risultati rilevanti\nif (topDocuments.length === 0) {\n  console.log('Nessun documento sopra la soglia, uso i top 2 comunque');\n  topDocuments.push(...documentsWithSimilarity.slice(0, 2));\n}\n\n// Prepara contesto ottimizzato\nconst context = topDocuments.map((doc, idx) => {\n  // Limita lunghezza contenuto per evitare prompt troppo lunghi\n  const maxContentLength = 1500;\n  const content = doc.content?.length > maxContentLength ? \n    doc.content.substring(0, maxContentLength) + '...' : \n    doc.content;\n  \n  return `[Documento ${idx + 1}] ${doc.title}\nContenuto: ${content}\nRilevanza: ${(doc.similarity * 100).toFixed(1)}%\n${doc.chunk_info !== 'single' ? `Sezione: ${doc.chunk_info}` : ''}\n---`;\n}).join('\\n');\n\nconst prompt = `Contesto dai documenti più rilevanti (${topDocuments.length} trovati):\n${context}\n\nDomanda dell'utente: ${originalQuery}\n\nIstruzioni:\n- Rispondi utilizzando SOLO le informazioni del contesto sopra\n- Se le informazioni non sono sufficienti, dillo chiaramente\n- Cita i documenti specifici quando possibile\n- Se trovi informazioni contrastanti, segnalalo`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    original_query: originalQuery,\n    documents_found: topDocuments.length,\n    top_similarity: topDocuments[0]?.similarity || 0,\n    threshold_used: threshold,\n    mode: 'semantic_rag_optimized',\n    documents: topDocuments.map(d => ({\n      title: d.title,\n      similarity: d.similarity,\n      chunk_info: d.chunk_info,\n      content_length: d.doc_length\n    })),\n    debug_info: {\n      query_embedding_length: queryEmbedding?.length,\n      total_documents: documents.length,\n      valid_documents: validDocuments.length,\n      avg_similarity: avgSimilarity,\n      similarity_distribution: {\n        min: Math.min(...similarities),\n        max: Math.max(...similarities),\n        avg: avgSimilarity\n      }\n    }\n  }\n}];"
       },
-      "id": "4d3d9665-1b8e-4781-bad1-5f5f64ffa80d",
+      "id": "d68b4f76-2191-45cc-9a1f-2dc6a0f57795",
       "name": "Code3",
       "type": "n8n-nodes-base.code",
       "position": [
-        -2336,
-        -32
+        -1376,
+        368
       ],
       "typeVersion": 2
     },
@@ -81,12 +81,12 @@
         },
         "options": {}
       },
-      "id": "e87c59e7-1c10-4b2e-9a9d-ff1d267ed72a",
+      "id": "3999f871-d0ea-479c-a2b3-389bc6f4f225",
       "name": "If1",
       "type": "n8n-nodes-base.if",
       "position": [
-        -2640,
-        160
+        -1904,
+        672
       ],
       "typeVersion": 2.2,
       "alwaysOutputData": false
@@ -117,12 +117,12 @@
         },
         "options": {}
       },
-      "id": "85df7974-e6d2-494a-b3c2-47c43f11944f",
+      "id": "5550e79c-0a53-49b0-9c22-262c29539fe6",
       "name": "HTTP Request3",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        -1744,
-        576
+        -512,
+        1024
       ],
       "typeVersion": 4.2
     },
@@ -130,12 +130,12 @@
       "parameters": {
         "options": {}
       },
-      "id": "77a6d368-97f2-4fd8-b92d-289b5763d1e1",
+      "id": "027b54f7-c01e-4938-a89f-ad7b87ebe70d",
       "name": "Respond to Webhook5",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        -1136,
-        560
+        112,
+        1008
       ],
       "typeVersion": 1.4
     },
@@ -143,12 +143,12 @@
       "parameters": {
         "jsCode": "// Risposta diretta senza database\nconst originalQuery = $('Webhook - Interroga AI').first().json.body.message;\n\nconst prompt = `L'utente ha fatto questa domanda: ${originalQuery}\n\nNon ho trovato informazioni specifiche nei miei documenti. Rispondi comunque alla domanda utilizzando le tue conoscenze generali, ma specifica chiaramente che stai rispondendo senza accesso a documenti specifici.`;\n\nreturn [{\n  json: {\n    prompt: prompt,\n    original_query: originalQuery,\n    mode: 'direct'\n  }\n}];"
       },
-      "id": "1c0230d8-b347-4797-a1b9-fdf0613c4798",
+      "id": "1b084e42-bdc8-4488-86d6-3edfc91dca33",
       "name": "Code5",
       "type": "n8n-nodes-base.code",
       "position": [
-        -2224,
-        544
+        -1376,
+        912
       ],
       "typeVersion": 2
     },
@@ -156,12 +156,12 @@
       "parameters": {
         "jsCode": "return $json.body"
       },
-      "id": "f84454a1-07c2-436e-a5c8-47fb6b980e47",
+      "id": "77fd6e06-19fe-4d5d-aef1-39e230f432d5",
       "name": "Filtra body",
       "type": "n8n-nodes-base.code",
       "position": [
-        -3808,
-        -672
+        -2560,
+        -928
       ],
       "typeVersion": 2
     },
@@ -169,12 +169,12 @@
       "parameters": {
         "options": {}
       },
-      "id": "42f69d1e-3478-4dc0-b072-935c0db4cce3",
+      "id": "2263516b-7d58-47bb-bf8c-20c0c00da3e4",
       "name": "Cicla i documenti",
       "type": "n8n-nodes-base.splitInBatches",
       "position": [
-        -3504,
-        -704
+        -2256,
+        -960
       ],
       "typeVersion": 3
     },
@@ -194,12 +194,12 @@
           }
         }
       },
-      "id": "1f40cd2a-47fe-4c0e-b63f-2b2bfdd44e8e",
+      "id": "2937b892-dfcf-4f6e-824c-28664fe68b51",
       "name": "Webhook - Insert Documenti",
       "type": "n8n-nodes-base.webhook",
       "position": [
-        -4016,
-        -672
+        -2768,
+        -928
       ],
       "webhookId": "5cbab2ad-47ad-4f49-a204-78bc6edc1e25",
       "typeVersion": 2.1
@@ -221,12 +221,12 @@
           }
         }
       },
-      "id": "9cb3dbf0-6c19-4dcd-b9e5-a34303a9f7f4",
+      "id": "13f7f117-7d57-4fce-ba98-a3d22eda52f7",
       "name": "Webhook - Interroga AI",
       "type": "n8n-nodes-base.webhook",
       "position": [
-        -3984,
-        304
+        -3184,
+        672
       ],
       "webhookId": "c89064c7-b3be-4f59-b655-064908786e2e",
       "typeVersion": 2.1
@@ -237,12 +237,12 @@
         "responseBody": "{\n  \"success\": true,\n  \"message\": \"Documento aggiunto con embedding\",\n  \"document_id\": \"{{ $json.insertId }}\"\n}",
         "options": {}
       },
-      "id": "6f4dc84a-8426-4ce9-87cc-d43a92f530b5",
+      "id": "2136b548-b688-40c0-b6fc-c1aa591f0a69",
       "name": "Webhook - Operazione completata",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        -2016,
-        -720
+        -768,
+        -976
       ],
       "typeVersion": 1.4
     },
@@ -250,12 +250,12 @@
       "parameters": {
         "jsCode": "\nreturn $input.first().json.body;"
       },
-      "id": "9d549cff-1529-493a-a14e-587f0b44f794",
+      "id": "879dc233-5538-4894-82f4-f3a84630f55b",
       "name": "Code",
       "type": "n8n-nodes-base.code",
       "position": [
-        -3776,
-        304
+        -2928,
+        672
       ],
       "typeVersion": 2
     },
@@ -289,12 +289,12 @@
         },
         "options": {}
       },
-      "id": "c8800890-a60c-48a9-ad06-788c24fe2cb8",
+      "id": "61f04655-0144-434a-a6cd-6da1514e788b",
       "name": "AI Model llama3.2:3b",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        -1712,
-        -96
+        -592,
+        592
       ],
       "typeVersion": 4.2
     },
@@ -328,12 +328,12 @@
         },
         "options": {}
       },
-      "id": "c9ccb1d5-2ba6-4abe-9d6d-90fae2837953",
+      "id": "8e243ff5-9401-4085-b7fd-afe020131af9",
       "name": "AI model gemma3:12b",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        -1712,
-        -304
+        -592,
+        32
       ],
       "typeVersion": 4.2
     },
@@ -343,12 +343,12 @@
         "query": "SELECT gemma.model as gemma_model, gemma.response  as gemma_response, llama.model as llama_model, llama.response as llama_response from input1 as gemma inner join input2 as llama",
         "options": {}
       },
-      "id": "c3de5285-0151-4062-b79d-15f224e208d6",
+      "id": "a81588e0-5498-4b13-a987-73a66db56903",
       "name": "Merge",
       "type": "n8n-nodes-base.merge",
       "position": [
-        -1520,
-        -160
+        -112,
+        320
       ],
       "typeVersion": 3.2
     },
@@ -356,12 +356,12 @@
       "parameters": {
         "jsCode": "// Funzione per dividere documenti lunghi in chunks semantici\nfunction intelligentChunking(title, content, maxChunkSize = 1000, overlap = 200) {\n  if (content.length <= maxChunkSize) {\n    return [{\n      title: title,\n      content: content,\n      chunk_index: 0,\n      total_chunks: 1,\n      is_chunked: false\n    }];\n  }\n\n  const chunks = [];\n  const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);\n  \n  let currentChunk = '';\n  let chunkIndex = 0;\n  \n  for (let i = 0; i < sentences.length; i++) {\n    const sentence = sentences[i].trim() + '.';\n    \n    // Se aggiungendo questa frase superiamo la dimensione massima\n    if (currentChunk.length + sentence.length > maxChunkSize && currentChunk.length > 0) {\n      // Salva il chunk corrente\n      chunks.push({\n        title: `${title} - Parte ${chunkIndex + 1}`,\n        content: currentChunk.trim(),\n        chunk_index: chunkIndex,\n        total_chunks: 0, // Sarà aggiornato dopo\n        is_chunked: true,\n        original_title: title\n      });\n      \n      // Inizia nuovo chunk con overlap\n      const overlapText = getOverlapText(currentChunk, overlap);\n      currentChunk = overlapText + sentence;\n      chunkIndex++;\n    } else {\n      currentChunk += ' ' + sentence;\n    }\n  }\n  \n  // Aggiungi l'ultimo chunk se non vuoto\n  if (currentChunk.trim().length > 0) {\n    chunks.push({\n      title: `${title} - Parte ${chunkIndex + 1}`,\n      content: currentChunk.trim(),\n      chunk_index: chunkIndex,\n      total_chunks: 0,\n      is_chunked: true,\n      original_title: title\n    });\n  }\n  \n  // Aggiorna total_chunks\n  chunks.forEach(chunk => chunk.total_chunks = chunks.length);\n  \n  return chunks;\n}\n\nfunction getOverlapText(text, overlapSize) {\n  if (text.length <= overlapSize) return text;\n  \n  // Trova l'ultimo punto prima della dimensione overlap\n  const overlapText = text.slice(-overlapSize);\n  const lastPeriod = overlapText.lastIndexOf('.');\n  \n  if (lastPeriod > overlapSize / 2) {\n    return overlapText.slice(lastPeriod + 1).trim() + ' ';\n  }\n  \n  return overlapText + ' ';\n}\n\n// Modifica per il tuo workflow n8n - da usare prima dell'embedding\nconst input = $input.first().json;\nconst chunks = intelligentChunking(input.title, input.content);\n\n// Restituisci tutti i chunks per processarli individualmente\nreturn chunks.map(chunk => ({ json: chunk }));"
       },
-      "id": "833d7b26-0b9a-45fb-8a27-d5822f437cb2",
+      "id": "bf2b6681-b49f-46fb-8aeb-56c96f2274a2",
       "name": "Chunking",
       "type": "n8n-nodes-base.code",
       "position": [
-        -3296,
-        -608
+        -2048,
+        -864
       ],
       "typeVersion": 2
     },
@@ -371,12 +371,12 @@
         "query": "SELECT id,\n       title,\n       content,\n       chunk_index,\n       total_chunks,\n       embedding_vector -> 'vector' AS stored_embedding\nFROM documents\nORDER BY title, chunk_index;\n",
         "options": {}
       },
-      "id": "0ce29f4c-9732-4198-98a9-5723e00e7045",
+      "id": "4dd8977d-89a3-4dc4-bf98-674ecb49ba83",
       "name": "Postgres - Query Embedding",
       "type": "n8n-nodes-base.postgres",
       "position": [
-        -3088,
-        304
+        -2288,
+        672
       ],
       "typeVersion": 2.6,
       "credentials": {
@@ -577,12 +577,12 @@
         },
         "options": {}
       },
-      "id": "c0a0a3b9-c861-4b31-b9f2-d60d071f6be9",
+      "id": "49695927-8a54-44a5-a5a9-0d719fb4b921",
       "name": "Postgres - Inserimento embeddings",
       "type": "n8n-nodes-base.postgres",
       "position": [
-        -2464,
-        -496
+        -1216,
+        -752
       ],
       "typeVersion": 2.6,
       "credentials": {
@@ -596,12 +596,12 @@
       "parameters": {
         "jsCode": "// Nodo: Javascript - Preparazioni dati (versione che usa metadata JSON)\nconst embeddingsResponses = $input.all();\nconst originalChunks = $('Chunking').all().map(i => i.json);\n\nconst nEmb = embeddingsResponses.length;\nconst nChunks = originalChunks.length;\nconst n = Math.min(nEmb, nChunks);\n\nif (n === 0) {\n  return [{\n    json: {\n      error: 'Nessun embedding o nessun chunk trovato',\n      embeddings_received: nEmb,\n      chunks_found: nChunks\n    }\n  }];\n}\n\nconst out = [];\n\nfor (let i = 0; i < n; i++) {\n  const embItem = embeddingsResponses[i].json || {};\n  const chunk = originalChunks[i] || {};\n\n  const vector =\n    embItem.embedding ||\n    embItem.data?.[0]?.embedding ||\n    embItem.body?.embedding ||\n    embItem.embeddings ||\n    embItem.result?.embedding ||\n    null;\n\n  const embedding_present = Array.isArray(vector) && vector.length > 0;\n\n  // Costruiamo il campo metadata come JSON string (compatibile con colonna JSON)\n  const metadataObj = {\n    debug: {\n      embedding_found: embedding_present,\n      embedding_length: Array.isArray(vector) ? vector.length : 0,\n      index: i,\n      embeddings_received: nEmb,\n      chunks_found: nChunks\n    }\n    // puoi aggiungere altri campi utili qui\n  };\n\n  out.push({\n    json: {\n      title: chunk.title || chunk.original_title || embItem.title || 'untitled',\n      original_title: chunk.original_title || chunk.title || null,\n      content: chunk.content || embItem.content || null,\n      category: chunk.category || 'generale',\n      model: 'nomic-embed-text',\n      chunk_index: typeof chunk.chunk_index !== 'undefined' ? chunk.chunk_index : null,\n      total_chunks: typeof chunk.total_chunks !== 'undefined' ? chunk.total_chunks : null,\n      is_chunked: chunk.is_chunked ? true : false,\n      embedding_vector: {\n        vector: embedding_present ? vector : null,\n        model: 'nomic-embed-text',\n        created_at: new Date().toISOString()\n      },\n      metadata: metadataObj\n    }\n  });\n}\n\n// se mismatch, aggiungiamo un avviso (non necessario per l'inserimento)\nif (nEmb !== nChunks) {\n  out.unshift({\n    json: {\n      warning: 'Mismatch tra numero di embeddings e numero di chunk originali',\n      embeddings_received: nEmb,\n      chunks_found: nChunks,\n      used_items: n\n    }\n  });\n}\n\nreturn out;\n"
       },
-      "id": "9c5715a9-1023-4c02-992c-6a498efbbc8a",
+      "id": "d7f2a7b0-0201-4dd8-be27-ac74a4812d08",
       "name": "Javascript - Preparazioni dati",
       "type": "n8n-nodes-base.code",
       "position": [
-        -2768,
-        -576
+        -1520,
+        -832
       ],
       "typeVersion": 2
     },
@@ -623,79 +623,14 @@
         "jsonBody": "={\n  \"model\": \"nomic-embed-text\",\n  \"prompt\": \"{{$json.title}} {{$json.content}}\",\n  \"metadata\": {\n    \"title\": \"{{$json.title}}\",\n    \"content\": \"{{$json.content}}\"\n  }\n}",
         "options": {}
       },
-      "id": "11517397-761a-4860-b7e8-ba0dc6325562",
+      "id": "89af1fc3-5ca6-4160-8ba0-2d39ce467e15",
       "name": "Ollama - Embedding Request",
       "type": "n8n-nodes-base.httpRequest",
       "position": [
-        -3024,
-        -576
+        -1776,
+        -832
       ],
       "typeVersion": 4.2
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://ollama:11434/api/generate",
-        "sendHeaders": true,
-        "specifyHeaders": "json",
-        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gemma3:27b"
-            },
-            {
-              "name": "prompt",
-              "value": "={{$json.prompt}}"
-            },
-            {
-              "name": "temperature",
-              "value": "={{ \"0.7\" }}"
-            },
-            {
-              "name": "stream",
-              "value": "={{ false }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "57f607cc-e821-4b17-9638-15519ad4ebcb",
-      "name": "AI model gemma3:27b",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [
-        -1712,
-        128
-      ],
-      "typeVersion": 4.2
-    },
-    {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "add_excel",
-        "responseMode": "responseNode",
-        "options": {
-          "responseHeaders": {
-            "entries": [
-              {
-                "name": "=Content-Type",
-                "value": "application/json"
-              }
-            ]
-          }
-        }
-      },
-      "id": "b30aaef2-ff97-4626-bb4e-28b5fe3e49c8",
-      "name": "Webhook",
-      "type": "n8n-nodes-base.webhook",
-      "position": [
-        -2016,
-        0
-      ],
-      "webhookId": "48e360e3-bd18-449a-817d-3d056dee3a1c",
-      "typeVersion": 2.1
     },
     {
       "parameters": {
@@ -713,12 +648,12 @@
           }
         }
       },
-      "id": "a7797385-9bea-4b9a-a1b5-06bcda3756d8",
+      "id": "1caa80a4-72f0-4ff7-b55a-23c439abc610",
       "name": "WebHook - Insert Excel",
       "type": "n8n-nodes-base.webhook",
       "position": [
-        -4176,
-        -336
+        -2928,
+        -592
       ],
       "webhookId": "6e7dbbf2-96d7-4587-9455-de62cb1f30eb",
       "typeVersion": 2.1
@@ -739,53 +674,14 @@
           }
         }
       },
-      "id": "3b0188c9-3083-4103-b3fe-5421557215c1",
+      "id": "2a6b6be2-3880-40ca-84ad-7ed233303e5d",
       "name": "Respond Excel",
       "type": "n8n-nodes-base.respondToWebhook",
       "position": [
-        -3552,
-        -336
+        -2304,
+        -592
       ],
       "typeVersion": 1.4
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://ollama:11434/api/generate",
-        "sendHeaders": true,
-        "specifyHeaders": "json",
-        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
-        "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "gemma3:4b"
-            },
-            {
-              "name": "prompt",
-              "value": "={{$json.prompt}}"
-            },
-            {
-              "name": "temperature",
-              "value": "={{ \"0.7\" }}"
-            },
-            {
-              "name": "stream",
-              "value": "={{ false }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "68fa9862-48fc-4037-ac5a-2aa73a738e01",
-      "name": "AI gemma3:12b1 - Read Excel",
-      "type": "n8n-nodes-base.httpRequest",
-      "position": [
-        -3456,
-        -96
-      ],
-      "typeVersion": 4.2
     },
     {
       "parameters": {
@@ -793,35 +689,40 @@
           "assignments": [
             {
               "id": "f07d2353-18f6-4eb7-8468-035221de43e1",
-              "name": "response",
+              "name": "message",
               "type": "string",
-              "value": "={{ $json.response }}"
+              "value": "={{ $(\"AI - Read Course\").first().json.response }}"
+            },
+            {
+              "id": "759abbfb-af6b-4d95-bba6-2712ec983555",
+              "name": "role",
+              "type": "string",
+              "value": "assistent"
+            },
+            {
+              "id": "5c0111ea-06f4-41c4-8f75-1424249326e3",
+              "name": "context",
+              "type": "string",
+              "value": "course"
+            },
+            {
+              "id": "94e3b991-4863-4117-b4ef-1b8a5d99b7b9",
+              "name": "session_id",
+              "type": "string",
+              "value": "={{ $(\"Creazione del prompt\").first().json.session_id }}"
             }
           ]
         },
         "options": {}
       },
-      "id": "5435ca37-1d8d-4f3e-87e7-57bbe0528450",
+      "id": "43202017-37fe-4361-a714-b02cf85d6b16",
       "name": "Edit Fields",
       "type": "n8n-nodes-base.set",
       "position": [
-        -3216,
-        -96
+        -2016,
+        -48
       ],
       "typeVersion": 3.4
-    },
-    {
-      "parameters": {
-        "jsCode": "// Parse del singolo oggetto JSON che arriva dal webhook\nconst inputItem = $input.first(); // Prende il primo (e unico) item\nconst results = [];\n\n// Log per debugging - i dati sono dentro body\nconsole.log('Dati ricevuti dal webhook:', JSON.stringify(inputItem.json.body, null, 2));\n\n// Estrai i campi dal body dell'oggetto ricevuto\nconst title = inputItem.json.body.title || '';\nconst domanda = inputItem.json.body.domanda || '';\nconst contentStr = inputItem.json.body.content || '[]';\n\nconsole.log('Title:', title);\nconsole.log('Domanda:', domanda);\nconsole.log('Content (lunghezza):', contentStr.length);\n\n// Parse del JSON content che contiene l'array dei corsi\nlet courses = [];\ntry {\n  courses = JSON.parse(contentStr);\n  console.log('Parsing riuscito, numero di corsi:', courses.length);\n} catch (e) {\n  console.error('Errore parsing JSON:', e);\n  console.error('Primi 500 caratteri del content:', contentStr.substring(0, 500));\n  return [];\n}\n\n// Se non ci sono corsi, restituisci array vuoto\nif (!courses || courses.length === 0) {\n  console.log('Nessun corso da processare');\n  return [];\n}\n\n// Log del primo corso per verificare la struttura\nconsole.log('Primo corso ricevuto:', JSON.stringify(courses[0], null, 2));\nconsole.log('Campi disponibili nel primo corso:', Object.keys(courses[0]));\n\n// Crea un record per ogni corso\nfor (let i = 0; i < courses.length; i++) {\n  const course = courses[i];\n  \n  // Log ogni 100 corsi per monitorare il progresso\n  if (i % 100 === 0) {\n    console.log(`Processando corso ${i + 1}/${courses.length}`);\n  }\n  \n  const recordData = {\n    // Campi dal tuo Excel (come li vedo nei dati di esempio)\n    codice_corso: course.codice || null,\n    descrizione_estesa__: course.descrizione_estesa || null,\n    descrizione_abbreviata__: course.descrizione_abbreviata || null,\n    \n    // Campi aggiuntivi presenti nei dati\n    denominazione_attuale_corso: course.denominazione_corso || null,\n    area_formazione: course.area_formazione || null,\n    settore_formazione: course.settore_formazione || null,\n    tipo_corso: course.tipo_corso || null,\n    \n    // Campi di default per le colonne mancanti nella tabella\n    data_istituzione: null,\n    motivo_istituzione: null,\n    sospeso_soppresso: false,\n    data_soppressione: null,\n    motivo_soppressione: null,\n    denominazione_titolo: null,\n    codice___titolo: null,\n    brevetto_associato_corso: null,\n    ente_programmatore: null,\n    ente_erogatore: null,\n    durata_gg_add: null,\n    frequentatori: null,\n    job_description: null,\n    posizione_prevista: null,\n    modalita_selezione: null,\n    presente_in_n8: false,\n    parole_chiave: null,\n    corso_da_bonificare: false,\n    corso_da_lasciare: false,\n    corso_da_aggiungere: true, // Indica che è un nuovo corso caricato\n    codici___associati: null\n  };\n  \n  // Aggiungi il record alla lista risultati\n  results.push({\n    json: recordData\n  });\n}\n\nconsole.log(`Totale record preparati per PostgreSQL: ${results.length}`);\n\n// Log dei primi 2 record per verificare la struttura\nif (results.length > 0) {\n  console.log('Primo record preparato (campi principali):');\n  console.log('- codice_corso:', results[0].json.codice_corso);\n  console.log('- descrizione_estesa__:', results[0].json.descrizione_estesa__);\n  console.log('- descrizione_abbreviata__:', results[0].json.descrizione_abbreviata__);\n}\n\n// Restituisci tutti i record\nreturn results;"
-      },
-      "id": "671a58a0-1f89-4203-86e7-c7b00b7b2e85",
-      "name": "Code1",
-      "type": "n8n-nodes-base.code",
-      "position": [
-        -3968,
-        -336
-      ],
-      "typeVersion": 2
     },
     {
       "parameters": {
@@ -839,6 +740,8 @@
         },
         "columns": {
           "value": {
+            "id": 0,
+            "durata_gg_add": 0,
             "presente_in_n8": false,
             "corso_da_lasciare": false,
             "sospeso_soppresso": false,
@@ -875,20 +778,22 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "descrizione_abbreviata__",
+              "id": "descrizione_abbreviata",
               "type": "string",
               "display": true,
+              "removed": false,
               "required": false,
-              "displayName": "descrizione_abbreviata__",
+              "displayName": "descrizione_abbreviata",
               "defaultMatch": false,
               "canBeUsedToMatch": true
             },
             {
-              "id": "descrizione_estesa__",
+              "id": "descrizione_estesa",
               "type": "string",
               "display": true,
+              "removed": false,
               "required": false,
-              "displayName": "descrizione_estesa__",
+              "displayName": "descrizione_estesa",
               "defaultMatch": false,
               "canBeUsedToMatch": true
             },
@@ -977,6 +882,7 @@
               "id": "codice___titolo",
               "type": "string",
               "display": true,
+              "removed": false,
               "required": false,
               "displayName": "codice___titolo",
               "defaultMatch": false,
@@ -1118,12 +1024,12 @@
         },
         "options": {}
       },
-      "id": "2553284a-6ae5-4b89-9e34-bcd0f3f5f7f5",
+      "id": "c66f6857-b4e1-4d91-b075-c0f900d0c4a5",
       "name": "Insert Excel in a table",
       "type": "n8n-nodes-base.postgres",
       "position": [
-        -3760,
-        -336
+        -2512,
+        -592
       ],
       "typeVersion": 2.6,
       "credentials": {
@@ -1132,6 +1038,31 @@
           "name": "Postgres account"
         }
       }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "22da4f34-6b7f-4a0a-8469-8a3b82caf8cf",
+      "name": "Respond Get Excel",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [
+        -1120,
+        -528
+      ],
+      "typeVersion": 1.4
     },
     {
       "parameters": {
@@ -1151,12 +1082,12 @@
         "limit": 500,
         "options": {}
       },
-      "id": "0228c728-a794-4b70-973d-ea144ccdc579",
-      "name": "Insert Excel in a table1",
+      "id": "bfc03c53-cf41-4078-a122-f4412ef69031",
+      "name": "Select From Table Corsi",
       "type": "n8n-nodes-base.postgres",
       "position": [
-        -3984,
-        -96
+        -2944,
+        64
       ],
       "typeVersion": 2.6,
       "credentials": {
@@ -1165,44 +1096,6 @@
           "name": "Postgres account"
         }
       }
-    },
-    {
-      "parameters": {
-        "jsCode": "const elenco = $input.all();\n\nconst listaCorsi = elenco.map(item => {\n  const codice = item.json[\"codice_corso\"] ?? '';\n  const descrizione = item.json[\"descrizione_abbreviata__\"] ?? '';\n  return `Codice: ${codice} - Descrizione: ${descrizione}`;\n}).join(\"\\n\");\n\nreturn {\n  json: {\n    prompt: `Mi individui 300 corsi tra quelli che passo nell'elenco:\\n${listaCorsi}`\n  }\n};\n"
-      },
-      "id": "20936d4d-2c24-48cf-b35f-1da8193791a7",
-      "name": "Code2",
-      "type": "n8n-nodes-base.code",
-      "position": [
-        -3776,
-        -96
-      ],
-      "typeVersion": 2
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $json }}",
-        "options": {
-          "responseCode": 200,
-          "responseHeaders": {
-            "entries": [
-              {
-                "name": "Content-Type",
-                "value": "application/json"
-              }
-            ]
-          }
-        }
-      },
-      "id": "1ae2f2a8-9039-493d-9822-746fac17b58d",
-      "name": "Respond Get Excel",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "position": [
-        -2960,
-        -96
-      ],
-      "typeVersion": 1.4
     },
     {
       "parameters": {
@@ -1219,15 +1112,261 @@
           }
         }
       },
-      "id": "df9e72e2-5766-4a95-a357-893012178263",
-      "name": "WebHook - Get from Excel",
+      "id": "36adae3d-413a-479c-84ae-bd98f5361532",
+      "name": "WebHook - Get from Corsi (Excel)",
       "type": "n8n-nodes-base.webhook",
       "position": [
-        -4256,
-        -96
+        -3328,
+        64
       ],
       "webhookId": "6e7dbbf2-96d7-4587-9455-de62cb1f30eb",
       "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse del singolo oggetto JSON che arriva dal webhook\nconst inputItem = $input.first(); // Prende il primo (e unico) item\nconst results = [];\n\n// Estrai i campi dal body dell'oggetto ricevuto\nconst contentStr = inputItem.json.body.content || '[]';\n\n// Parse del JSON content che contiene l'array dei corsi\nlet courses = [];\ntry {\n  courses = JSON.parse(contentStr);\n} catch (e) {\n  return [];\n}\n\n// Se non ci sono corsi, restituisci array vuoto\nif (!courses || courses.length === 0) {\n  return [];\n}\n\n// Crea un record per ogni corso\nfor (let i = 0; i < courses.length; i++) {\n  const course = courses[i];\n  \n  const recordData = {\n    // Campi dal tuo Excel (come li vedo nei dati di esempio)\n    codice_corso: course.codice || null,\n    descrizione_estesa: course.descrizione_estesa || null,\n    descrizione_abbreviata: course.descrizione_abbreviata || null,\n    \n    // Campi aggiuntivi presenti nei dati\n    denominazione_attuale_corso: course.denominazione_attuale || null,\n    area_formazione: course.area_formazione || null,\n    settore_formazione: course.settore_formazione || null,\n    tipo_corso: course.tipo_corso || null,\n    \n    // Campi di default per le colonne mancanti nella tabella\n    data_istituzione: course.data_istituzione || null,\n    motivo_istituzione: course.motivo_istituzione || null,\n    sospeso_soppresso: course.sospeso_soppresso || null,\n    data_soppressione: course.data_soppressione || null,\n    motivo_soppressione: course.motivo_soppressione || null,\n    denominazione_titolo: null,\n    codice___titolo: null,\n    brevetto_associato_corso: null,\n    ente_programmatore: null,\n    ente_erogatore: null,\n    durata_gg_add: null,\n    frequentatori: null,\n    job_description: null,\n    posizione_prevista: null,\n    modalita_selezione: null,\n    presente_in_n8: false,\n    parole_chiave: null,\n    corso_da_bonificare: false,\n    corso_da_lasciare: false,\n    corso_da_aggiungere: true, // Indica che è un nuovo corso caricato\n    codici___associati: null\n  };\n  \n  // Aggiungi il record alla lista risultati\n  results.push({\n    json: recordData\n  });\n}\n\n// Restituisci tutti i record\nreturn results;"
+      },
+      "id": "3ce29376-6089-4688-9307-c44c2b8d5dfa",
+      "name": "Parse JSON per tabella Corsi",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -2720,
+        -592
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "const elenco = $input.all();\nconst listaCorsi = elenco.map(item => {\n  const codice = item.json[\"codice_corso\"] ?? '';\n  const descrizione_estesa = item.json[\"descrizione_estesa\"] ?? '';\n  return `Codice: ${codice} - Descrizione: ${descrizione_estesa}`;\n}).join(\"\\n\");\n\nreturn {\n  json: {\n    context: 'course',\n    session_id: 'xxxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n      const r = (Math.random() * 16 | 0);\n      const v = c === 'x' ? r : (r&0x3) | 0x8;\n      return v.toString(16)\n    }),\n    role: \"user\",\n    message: `DEVI RISPONDERE SOLO ED ESCLUSIVAMENTE IN ITALIANO. Il formato output deve essere language: 'IT' che sta per italiano. Tutto il testo di output deve essere in italiano, punto. E' essenziale che mi rispondi in italiano e non traduci nulla, anche se i corsi troverai con dei titoli in inglese. Inoltre devi scegliere le descrizione_estese dei corsi in base anche alla data_istituzione, scegliendo quella più recente e nella risposta aggiungi sempre il 'codice' del corso. Ti passo l'elenco estrapolato dal database: '' \\n ${listaCorsi}`\n  }\n};\n"
+      },
+      "id": "1edd5c0c-e475-47be-bcd1-c13ecc229002",
+      "name": "Creazione del prompt",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -2608,
+        48
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "890713c4-2e4e-4c50-ad23-90ecd914819d",
+              "name": "response",
+              "type": "string",
+              "value": "={{ $json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "77c556cc-36c2-4d46-ad13-4d4e1608f876",
+      "name": "Set Response",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        -1392,
+        -400
+      ],
+      "typeVersion": 3.4
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "conversation_history",
+          "cachedResultName": "conversation_history"
+        },
+        "columns": {
+          "value": {
+            "role": "={{ $json.role }}",
+            "context": "={{ $json.context }}",
+            "message": "={{ $json.message }}",
+            "is_valid": true,
+            "session_id": "={{ $json.session_id }}"
+          },
+          "schema": [
+            {
+              "id": "id",
+              "type": "number",
+              "display": true,
+              "required": false,
+              "displayName": "id",
+              "defaultMatch": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "context",
+              "type": "string",
+              "display": true,
+              "required": true,
+              "displayName": "context",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message",
+              "type": "string",
+              "display": true,
+              "required": true,
+              "displayName": "message",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "type": "dateTime",
+              "display": true,
+              "required": false,
+              "displayName": "created_at",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "is_valid",
+              "type": "boolean",
+              "display": true,
+              "required": false,
+              "displayName": "is_valid",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "session_id",
+              "type": "string",
+              "display": true,
+              "required": false,
+              "displayName": "session_id",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "deleted_at",
+              "type": "dateTime",
+              "display": true,
+              "required": false,
+              "displayName": "deleted_at",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "role",
+              "type": "string",
+              "display": true,
+              "required": true,
+              "displayName": "role",
+              "defaultMatch": false,
+              "canBeUsedToMatch": true
+            }
+          ],
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "id"
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "1024a579-c54d-4ed2-a61c-d41e118d4236",
+      "name": "Insert Histstory message",
+      "type": "n8n-nodes-base.postgres",
+      "position": [
+        -2016,
+        288
+      ],
+      "typeVersion": 2.6,
+      "credentials": {
+        "postgres": {
+          "id": "cQV6QcnE3hUHoAvE",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gemma3:12b"
+            },
+            {
+              "name": "prompt",
+              "value": "={{$json.message}}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{ \"0.2\" }}"
+            },
+            {
+              "name": "stream",
+              "value": "={{ false }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "569bb58d-776d-4544-8956-7687f8875c06",
+      "name": "AI - Read Course",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -2352,
+        -256
+      ],
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://ollama:11434/api/generate",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "gemma3:12b"
+            },
+            {
+              "name": "prompt",
+              "value": "=traducimi in italiano questo testo: {{$json.response}}"
+            },
+            {
+              "name": "temperature",
+              "value": "={{ \"0.9\" }}"
+            },
+            {
+              "name": "stream",
+              "value": "={{ false }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9b67298e-e7d0-4d75-867d-b2b07375e6b4",
+      "name": "AI - Translate",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        -1968,
+        -400
+      ],
+      "typeVersion": 4.2
     }
   ],
   "pinData": {},
@@ -1261,33 +1400,16 @@
         ]
       ]
     },
-    "Code1": {
-      "main": [
-        [
-          {
-            "node": "Insert Excel in a table",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code2": {
-      "main": [
-        [
-          {
-            "node": "AI gemma3:12b1 - Read Excel",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Code3": {
       "main": [
         [
           {
             "node": "AI model gemma3:12b",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Model llama3.2:3b",
             "type": "main",
             "index": 0
           }
@@ -1307,7 +1429,13 @@
     },
     "Merge": {
       "main": [
-        []
+        [
+          {
+            "node": "Respond to Webhook3",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Chunking": {
@@ -1325,7 +1453,12 @@
       "main": [
         [
           {
-            "node": "Respond Get Excel",
+            "node": "Set Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Insert Histstory message",
             "type": "main",
             "index": 0
           }
@@ -1343,11 +1476,44 @@
         ]
       ]
     },
+    "Set Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Get Excel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "HTTP Request3": {
       "main": [
         [
           {
             "node": "Respond to Webhook5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Translate": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Read Course": {
+      "main": [
+        [
+          {
+            "node": "AI - Translate",
             "type": "main",
             "index": 0
           }
@@ -1376,16 +1542,11 @@
       "main": [
         [
           {
-            "node": "Respond to Webhook3",
+            "node": "Merge",
             "type": "main",
             "index": 0
           }
         ]
-      ]
-    },
-    "AI model gemma3:27b": {
-      "main": [
-        []
       ]
     },
     "AI Model llama3.2:3b": {
@@ -1399,11 +1560,27 @@
         ]
       ]
     },
+    "Creazione del prompt": {
+      "main": [
+        [
+          {
+            "node": "AI - Read Course",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Insert Histstory message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "WebHook - Insert Excel": {
       "main": [
         [
           {
-            "node": "Code1",
+            "node": "Parse JSON per tabella Corsi",
             "type": "main",
             "index": 0
           }
@@ -1432,26 +1609,20 @@
         ]
       ]
     },
-    "Insert Excel in a table1": {
+    "Select From Table Corsi": {
       "main": [
         [
           {
-            "node": "Code2",
+            "node": "Creazione del prompt",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "WebHook - Get from Excel": {
+    "Insert Histstory message": {
       "main": [
-        [
-          {
-            "node": "Insert Excel in a table1",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        []
       ]
     },
     "Ollama - Embedding Request": {
@@ -1487,11 +1658,11 @@
         ]
       ]
     },
-    "AI gemma3:12b1 - Read Excel": {
+    "Parse JSON per tabella Corsi": {
       "main": [
         [
           {
-            "node": "Edit Fields",
+            "node": "Insert Excel in a table",
             "type": "main",
             "index": 0
           }
@@ -1509,9 +1680,15 @@
         ]
       ]
     },
-    "Postgres - Inserimento embeddings": {
+    "WebHook - Get from Corsi (Excel)": {
       "main": [
-        []
+        [
+          {
+            "node": "Select From Table Corsi",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "HTTP Request - Generate Query Embedding": {
@@ -1530,7 +1707,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "6a85a356-865c-4ed2-9e23-af83469029a8",
+  "versionId": "fd163740-959d-4356-8312-441bb73bbe54",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "cec5676a8e5ccf12827767452c6dd0bd3490dd15af96b14c073450ba88a3964f"

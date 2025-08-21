@@ -1,49 +1,86 @@
 <!DOCTYPE html>
 <html lang="it">
-<head>
-<meta charset="UTF-8">
-<title>PDF Reader</title>
-</head>
-<body>
-<h1>Carica uno o più PDF</h1>
+  <head>
+    <meta charset="UTF-8" />
+    <title>PDF Reader</title>
+  </head>
+  <body>
+    <h1>Carica uno o più PDF</h1>
 
-<!-- dentro public/html/index.html (o qualunque sia il tuo file) -->
-<p><a href="/excel.html">Apri Excel Reader</a></p>
+    <!-- dentro public/html/index.html (o qualunque sia il tuo file) -->
+    <p><a href="/excel.html">Apri Excel Reader</a></p>
 
+    <form id="uploadForm">
+      <input
+        type="file"
+        id="pdfFiles"
+        name="pdfs"
+        accept="application/pdf"
+        multiple
+        required
+      />
+      <button type="submit">Carica</button>
+    </form>
+    <div id="output"></div>
 
-<form id="uploadForm">
-    <input type="file" id="pdfFiles" name="pdfs" accept="application/pdf" multiple required>
-    <button type="submit">Carica</button>
-</form>
-<div id="output"></div>
+    <!-- Upload Excel -->
 
-<script>
-const form = document.getElementById('uploadForm');
-const output = document.getElementById('output');
+    <!-- Interroga corsi -->
+    <h2>Interroga Corsi</h2>
+    <input type="text" id="question" />
+    <button id="interrogaBtn" onclick="interrogaAI()">Interroga</button>
+    <div id="loadingInterroga" style="display: none">Interrogazione...</div>
+    <div id="resultInterroga"></div>
+    <div id="errorInterroga" style="color: red"></div>
 
-form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const files = document.getElementById('pdfFiles').files;
-    const formData = new FormData();
+    <script>
+      const form = document.getElementById("uploadForm");
+      const output = document.getElementById("output");
+      // Interroga corsi
+      async function interrogaAI() {
+        document.getElementById("loadingInterroga").style.display = "block";
+        try {
+          // chiamata al tuo backend (porta 3000 di Express)
+          const question = document.getElementById("question").value;
+          const formData = new FormData();
+          formData.append("domanda", question);
+          const res = await fetch("http://localhost:3000/interroga-ai", {
+            method: "POST",
+            body: formData,
+          });
+          const data = await res.json();
+          document.getElementById("resultInterroga").innerHTML =
+            JSON.stringify(data.response);
+        } catch (err) {
+          document.getElementById("errorInterroga").textContent =
+            "Errore: " + err.message;
+        } finally {
+          document.getElementById("loadingInterroga").style.display = "none";
+        }
+      }
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const files = document.getElementById("pdfFiles").files;
+        const formData = new FormData();
 
-    for (const file of files) {
-        formData.append('pdfs', file);
-    }
+        for (const file of files) {
+          formData.append("pdfs", file);
+        }
 
-    const res = await fetch('/upload', { method: 'POST', body: formData });
-    const data = await res.json();
+        const res = await fetch("/upload", { method: "POST", body: formData });
+        const data = await res.json();
 
-    if (data.files) {
-        output.innerHTML = '';
-        data.files.forEach(f => {
-            const div = document.createElement('div');
+        if (data.files) {
+          output.innerHTML = "";
+          data.files.forEach((f) => {
+            const div = document.createElement("div");
             div.innerHTML = `<h2>${f.title}</h2><pre>${f.content}</pre>`;
             output.appendChild(div);
-        });
-    } else {
-        output.textContent = data.error || 'Errore sconosciuto';
-    }
-});
-</script>
-</body>
+          });
+        } else {
+          output.textContent = data.error || "Errore sconosciuto";
+        }
+      });
+    </script>
+  </body>
 </html>

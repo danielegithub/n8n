@@ -1,0 +1,9 @@
+CREATE TABLE conversation_history (
+	id SERIAL PRIMARY KEY,
+	user_message TEXT NOT NULL,
+	ai_response TEXT NOT NULL,
+	created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+	is_valid BOOLEAN DEFAULT TRUE,
+	session_id VARCHAR(255),
+	deleted_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
+)

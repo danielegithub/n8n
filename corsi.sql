@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS "corsi" (
 	"settore_formazione" TEXT NULL DEFAULT NULL,
 	"tipo_corso" TEXT NULL DEFAULT NULL,
 	"denominazione_titolo" TEXT NULL DEFAULT NULL,
-	"codice_titolo" VARCHAR(50) NULL DEFAULT NULL,
+	"codice___titolo" VARCHAR(50) NULL DEFAULT NULL,
 	"brevetto_associato_corso" TEXT NULL DEFAULT NULL,
 	"ente_programmatore" TEXT NULL DEFAULT NULL,
 	"ente_erogatore" TEXT NULL DEFAULT NULL,
