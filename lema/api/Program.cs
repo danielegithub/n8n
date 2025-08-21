@@ -1,3 +1,4 @@
+using api.endpoint;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -43,6 +44,7 @@ app.UseHttpsRedirection();
 var todos = new List<TodoItem>();
 
 app.MapTodosApi(todos);
+app.MapPdfUploadEndpoints();
 
 app.MapOllamaApi();
 app.Run();
