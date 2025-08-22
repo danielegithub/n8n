@@ -41,6 +41,9 @@ builder.Services.AddHttpClient("postgres", client =>
     client.Timeout = TimeSpan.FromMinutes(25); // Timeout lungo per le risposte AI
 });
 
+builder.Services.AddScoped<IRequestDb, RequestDb>();
+builder.Services.AddScoped<IRequestOllama, RequestOllama>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

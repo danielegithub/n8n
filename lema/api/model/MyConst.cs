@@ -5,6 +5,7 @@ namespace api.model
         public string AddPdf { get; set; }
         public string QuestionAI { get; set; }
         public string InsertDocument { get; set; }
+        public string GetDocument { get; set; }
 
         public string qwen306b { get; set; }
         public string gemma327b { get; set; }

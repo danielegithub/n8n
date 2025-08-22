@@ -7,3 +7,4 @@ global using api.data;
 global using System.Text;
 global using UglyToad.PdfPig;
 global using Microsoft.Extensions.Options;
+global using api.utils;
