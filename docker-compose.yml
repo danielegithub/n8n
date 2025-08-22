@@ -117,6 +117,35 @@ services:
       - rag_network
     depends_on:
       - mysql
+  api:
+    build:
+      context: ./lema
+      dockerfile: api/Dockerfile
+    container_name: api_service
+    restart: unless-stopped
+    ports:
+      - "5001:8080"
+    networks:
+      - rag_network
+    depends_on:
+      - mysql
+      - postgres
+      - ollama
+
+  apipostgres:
+    build:
+      context: ./lema
+      dockerfile: apipostgres/Dockerfile
+    container_name: apipostgres_service
+    restart: unless-stopped
+    ports:
+      - "5002:8080"
+    networks:
+      - rag_network
+    depends_on:
+      - mysql
+      - postgres
+      - ollama
 
 volumes:
   mysql_data:

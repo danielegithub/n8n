@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "api", "api\api.csproj", "{7D850960-0207-48A8-8628-742FA8DC45B0}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "apipostgres", "apipostgres\apipostgres.csproj", "{D2977A52-512A-48B3-AAFD-CD60D1F38F97}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,18 @@ Global
 		{7D850960-0207-48A8-8628-742FA8DC45B0}.Release|x64.Build.0 = Release|Any CPU
 		{7D850960-0207-48A8-8628-742FA8DC45B0}.Release|x86.ActiveCfg = Release|Any CPU
 		{7D850960-0207-48A8-8628-742FA8DC45B0}.Release|x86.Build.0 = Release|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Debug|x64.Build.0 = Debug|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Debug|x86.Build.0 = Debug|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Release|x64.ActiveCfg = Release|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Release|x64.Build.0 = Release|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Release|x86.ActiveCfg = Release|Any CPU
+		{D2977A52-512A-48B3-AAFD-CD60D1F38F97}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

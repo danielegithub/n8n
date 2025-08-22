@@ -14,14 +14,14 @@ namespace api.model
 
         [Column("title")]
         [MaxLength(255)]
-        public string? Title { get; set; }
+        public string Title { get; set; }
 
         [Column("original_title")]
         [MaxLength(255)]
-        public string? OriginalTitle { get; set; }
+        public string OriginalTitle { get; set; }
 
         [Column("content")]
-        public string? Content { get; set; }
+        public string Content { get; set; }
 
         [Column("category")]
         [MaxLength(100)]
@@ -29,10 +29,10 @@ namespace api.model
 
         [Column("model")]
         [MaxLength(100)]
-        public string? Model { get; set; }
+        public string Model { get; set; }
 
         [Column("embedding_vector", TypeName = "jsonb")]
-        public string? EmbeddingVector { get; set; }
+        public string EmbeddingVector { get; set; }
 
         [Column("chunk_index")]
         public int ChunkIndex { get; set; } = 0;
@@ -45,24 +45,24 @@ namespace api.model
 
         [Column("file_name")]
         [MaxLength(255)]
-        public string? FileName { get; set; }
+        public string FileName { get; set; }
 
         [Column("file_path")]
-        public string? FilePath { get; set; }
+        public string FilePath { get; set; }
 
         [Column("mime_type")]
         [MaxLength(100)]
-        public string? MimeType { get; set; }
+        public string MimeType { get; set; }
 
         [Column("language")]
         [MaxLength(8)]
-        public string? Language { get; set; }
+        public string Language { get; set; }
 
         [Column("doc_length")]
         public int? DocLength { get; set; }
 
         [Column("metadata", TypeName = "jsonb")]
-        public string? Metadata { get; set; }
+        public string Metadata { get; set; }
 
         [Column("created_at")]
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -71,7 +71,7 @@ namespace api.model
         public DateTime? UpdatedAt { get; set; }
 
         // Helper methods per gestire JSON
-        public T? GetMetadata<T>() where T : class
+        public T GetMetadata<T>() where T : class
         {
             if (string.IsNullOrEmpty(Metadata))
                 return null;
@@ -84,7 +84,7 @@ namespace api.model
             Metadata = JsonSerializer.Serialize(data);
         }
 
-        public float[]? GetEmbeddingVector()
+        public float[] GetEmbeddingVector()
         {
             if (string.IsNullOrEmpty(EmbeddingVector))
                 return null;

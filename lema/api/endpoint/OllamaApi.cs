@@ -1,27 +1,30 @@
-using System.Text;
-using System.Text.Json;
+using Microsoft.Extensions.Options;
 
 public static class OllamaApi
 {
+
+
     public static void MapOllamaApi(this IEndpointRouteBuilder app)
     {
-        app.MapPost("/ask", async (QuestionRequestQwen request, IHttpClientFactory httpClientFactory) =>
+        app.MapPost("/AskOllama", async (string message, IHttpClientFactory httpClientFactory, IOptions<MyConst> settings) =>
         {
-            if (string.IsNullOrWhiteSpace(request.Question))
+            if (string.IsNullOrWhiteSpace(message))
             {
                 return Results.BadRequest("La domanda non può essere vuota");
             }
 
-            var httpClient = httpClientFactory.CreateClient("OllamaClient");
+            var httpClient = httpClientFactory.CreateClient("ollama");
 
             try
             {
                 // Prepara la richiesta per Ollama
-                var ollamaRequest = new OllamaRequest(
-                    model: request.Model,
-                    prompt: request.Question,
-                    stream: false
-                );
+                var ollamaRequest = new
+                {
+                    model = settings.Value.gemma34b,
+                    prompt = message,
+                    stream = false
+                };
+
 
                 var jsonContent = JsonSerializer.Serialize(ollamaRequest);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
@@ -43,9 +46,7 @@ public static class OllamaApi
                 {
                     return Results.Ok(new
                     {
-                        question = request.Question,
                         answer = responseText.GetString(),
-                        model = request.Model,
                         timestamp = DateTime.UtcNow
                     });
                 }
@@ -64,50 +65,8 @@ public static class OllamaApi
             {
                 return Results.Problem($"Errore interno: {ex.Message}");
             }
-        });
+        }).WithTags("ollama");
 
-        /// Verifica lo stato di Ollama
-        app.MapGet("/ollama/status", async (IHttpClientFactory httpClientFactory) =>
-                {
-                    var httpClient = httpClientFactory.CreateClient("OllamaClient");
-
-                    try
-                    {
-                        var response = await httpClient.GetAsync("api/tags");
-                        if (response.IsSuccessStatusCode)
-                        {
-                            var content = await response.Content.ReadAsStringAsync();
-                            return Results.Ok(new { status = "connected", models = JsonSerializer.Deserialize<JsonElement>(content) });
-                        }
-
-                        return Results.Problem($"Ollama non raggiungibile: {response.StatusCode}");
-                    }
-                    catch (Exception ex)
-                    {
-                        return Results.Problem($"Ollama non disponibile: {ex.Message}");
-                    }
-                });
-
-        app.MapGet("/ollama/models", async (IHttpClientFactory httpClientFactory) =>
-{
-    var httpClient = httpClientFactory.CreateClient("OllamaClient");
-
-    try
-    {
-        var response = await httpClient.GetAsync("api/tags");
-        if (response.IsSuccessStatusCode)
-        {
-            var content = await response.Content.ReadAsStringAsync();
-            return Results.Ok(JsonSerializer.Deserialize<JsonElement>(content));
-        }
-
-        return Results.Problem($"Impossibile recuperare i modelli: {response.StatusCode}");
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem($"Errore nel recupero modelli: {ex.Message}");
-    }
-});
     }
 
 

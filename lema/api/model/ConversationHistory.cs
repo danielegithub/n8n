@@ -31,7 +31,7 @@ namespace api.model
 
         [Column("session_id")]
         [MaxLength(255)]
-        public string? SessionId { get; set; }
+        public string SessionId { get; set; }
 
         [Column("deleted_at")]
         public DateTimeOffset? DeletedAt { get; set; }
