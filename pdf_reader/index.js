@@ -19,6 +19,9 @@ const upload = multer({ dest: "uploads/" });
 // Middleware per servire file statici (public/)
 app.use(express.static("public"));
 
+app.use(express.json()); // Per JSON
+app.use(express.urlencoded({ extended: true })); // Per form data
+
 // --- Endpoint esistente per PDF (invariato salvo qualche piccola pulizia) ---
 app.post("/upload", upload.array("pdfs", 10), async (req, res) => {
   try {
@@ -62,15 +65,13 @@ app.post("/upload", upload.array("pdfs", 10), async (req, res) => {
   }
 });
 
-app.post("/interroga-ai", upload.array("question"), async (req, res) => {
+app.post("/interroga-ai", async (req, res) => {
   try {
     const webhookResponse = await axios.post(
       "http://localhost:5678/webhook-test/rag-query",
-      {
-        question: req.body.domanda,
-      }
+      { question: req.body.domanda }
     );
-    res.json({ response: webhookResponse.data.response });
+    res.json({ response: webhookResponse.data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

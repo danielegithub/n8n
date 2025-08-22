@@ -42,15 +42,18 @@
         try {
           // chiamata al tuo backend (porta 3000 di Express)
           const question = document.getElementById("question").value;
-          const formData = new FormData();
-          formData.append("domanda", question);
+
+          // CAMBIA: Invia JSON invece di FormData
           const res = await fetch("http://localhost:3000/interroga-ai", {
             method: "POST",
-            body: formData,
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ domanda: question }),
           });
+
           const data = await res.json();
-          document.getElementById("resultInterroga").innerHTML =
-            JSON.stringify(data.response);
+          displayResponse(data.response);
         } catch (err) {
           document.getElementById("errorInterroga").textContent =
             "Errore: " + err.message;
@@ -58,6 +61,69 @@
           document.getElementById("loadingInterroga").style.display = "none";
         }
       }
+
+      
+      function displayResponse(responseData) {
+        const resultDiv = document.getElementById("resultInterroga");
+
+        // Se la risposta è una stringa JSON, prova a parsarla
+        let parsedData;
+        if (typeof responseData === "string") {
+          try {
+            parsedData = JSON.parse(responseData);
+          } catch (e) {
+            // Se non è JSON valido, trattala come stringa semplice
+            parsedData = responseData;
+          }
+        } else {
+          parsedData = responseData;
+        }
+
+        let html = '<div class="ai-response">';
+
+        // Controlla se è una risposta RAG strutturata
+        if (
+          parsedData &&
+          typeof parsedData === "object" &&
+          (parsedData.gemma_response || parsedData.llama_response)
+        ) {
+          // Risposta RAG con modelli multipli
+          if (parsedData.gemma_response) {
+            html += `
+        <div class="model-response">
+          <h3>🤖 Gemma (${parsedData.gemma_model || "gemma"})</h3>
+          <p>${parsedData.gemma_response.replace(/\n/g, "<br>")}</p>
+        </div>
+      `;
+          }
+
+          if (parsedData.llama_response) {
+            html += `
+        <div class="model-response">
+          <h3>🦙 Llama (${parsedData.llama_model || "llama"})</h3>
+          <p>${parsedData.llama_response.replace(/\n/g, "<br>")}</p>
+        </div>
+      `;
+          }
+        } else {
+          // Risposta semplice (senza RAG)
+          const responseText =
+            typeof parsedData === "string"
+              ? parsedData
+              : JSON.stringify(parsedData, null, 2);
+
+          html += `
+      <div class="simple-response">
+        <h3>🤖 Risposta AI</h3>
+        <p>${responseText.replace(/\n/g, "<br>")}</p>
+      </div>
+    `;
+        }
+
+        html += "</div>";
+        resultDiv.innerHTML = html;
+      }
+
       form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const files = document.getElementById("pdfFiles").files;
