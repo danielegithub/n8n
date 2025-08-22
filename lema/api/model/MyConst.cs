@@ -13,7 +13,7 @@ namespace api.model
         public string gemma312b { get; set; }
         public string llama323b { get; set; }
         public string nomicembedtext { get; set; }
-
+        public string deppseekr1 { get; set; }
 
     }
 }

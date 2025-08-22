@@ -12,14 +12,14 @@ public static class OllamaApi
                 return Results.BadRequest("La domanda non può essere vuota");
             }
 
-            var vector = await requestOllama.GetEmbeddingWithOllama(question);
+            var vector = await requestOllama.GetEmbeddingWithOllamaAsync(question);
             var allDocuments = await requestDb.GetAllDocumentAsync();
 
             var prompt = RagProcessor.ProcessRAGQuery(allDocuments, vector, question);
-
+            var response = await requestOllama.GetRequestWithRagAsync(question);
             try
             {
-                return Results.Ok(requestOllama.GetRequestWithRag(question));
+                return Results.Ok(response);
             }
             catch (HttpRequestException ex)
             {
