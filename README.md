@@ -167,3 +167,11 @@ json{
   "prompt": "{{ $json.rag_context }}",
   "stream": false
 ```
+
+# Per installare HugginFace ed il modello Tyni
+
+### Lanciare i comandi 
+```bash
+pip install huggingface-hub
+huggingface-cli download TinyLlama/TinyLlama-1.1B-Chat-v1.0 --local-dir ./models/TinyLlama-1.1B
+```

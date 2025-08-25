@@ -43,7 +43,7 @@ namespace api.endpoint
                     foreach (var chunk in chunks)
                     {
 
-                        var vector = await requestOllama.GetEmbeddingWithOllama($"{chunk.Title} {chunk.Content}");
+                        var vector = await requestOllama.GetEmbeddingWithOllamaAsync($"{chunk.Title} {chunk.Content}");
                         var document = new api.model.Document
                         {
                             Title = chunk.Title,

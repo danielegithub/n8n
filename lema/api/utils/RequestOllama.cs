@@ -2,13 +2,16 @@ namespace api.utils
 {
     public class ResponseOllama
     {
-        public string answer { get; set; }
-        public DateTime timestamp { get; set; }
+        public string model { get; set; }
+
+        public DateTimeOffset created_at { get; set; }
+
+        public string response { get; set; }
     }
     public interface IRequestOllama
     {
-        Task<float[]> GetEmbeddingWithOllama(string question);
-        Task<ResponseOllama> GetRequestWithRag(string prompt);
+        Task<float[]> GetEmbeddingWithOllamaAsync(string question);
+        Task<ResponseOllama> GetRequestWithRagAsync(string prompt);
     }
 
     public class RequestOllama : IRequestOllama
@@ -25,13 +28,13 @@ namespace api.utils
             this.myconst = myconst;
         }
 
-        public async Task<ResponseOllama> GetRequestWithRag(string prompt)
+        public async Task<ResponseOllama> GetRequestWithRagAsync(string question)
         {
             // Prepara la richiesta per Ollama
             var ollamaRequest = new
             {
                 model = myconst.Value.gemma34b,
-                prompt = prompt,
+                prompt = question,
                 stream = false
             };
             var jsonContent = JsonSerializer.Serialize(ollamaRequest);
@@ -42,7 +45,7 @@ namespace api.utils
             return JsonSerializer.Deserialize<ResponseOllama>(responseContent);
         }
 
-        public async Task<float[]> GetEmbeddingWithOllama(string question)
+        public async Task<float[]> GetEmbeddingWithOllamaAsync(string question)
         {
             var embeddingRequest = new
             {
