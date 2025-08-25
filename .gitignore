@@ -5,6 +5,7 @@
 [Oo]bj/
 [Dd]ebug/
 [Rr]elease/
+[Mm]odels/
 
 # Packages and artifacts
 *.nupkg

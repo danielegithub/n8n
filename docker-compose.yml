@@ -46,6 +46,29 @@ services:
     #           count: 1
     #           capabilities: [gpu]
 
+  # vLLM Server - Performance ottimizzate
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm_server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+      - HF_HOME=/models/.cache
+    volumes:
+      - ./models:/models
+    networks:
+      - rag_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: --model /models/TinyLlama-1.1B --gpu-memory-utilization 0.4 --max-model-len 2048 --host 0.0.0.0 --port 8000
+
   # n8n Workflow Automation
   n8n:
     image: n8nio/n8n:latest
@@ -73,6 +96,8 @@ services:
     depends_on:
       - mysql
       - ollama
+      - vllm
+
   postgres:
     image: postgres:15
     container_name: postgres_rag
@@ -131,6 +156,7 @@ services:
       - mysql
       - postgres
       - ollama
+      - vllm
 
   apipostgres:
     build:
@@ -146,6 +172,7 @@ services:
       - mysql
       - postgres
       - ollama
+      - vllm
 
 volumes:
   mysql_data:
